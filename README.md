@@ -2,14 +2,52 @@
 
 **Geany Copilot** is an AI-powered assistant integrated into the [Geany](https://www.geany.org/) IDE. Inspired by GitHub Copilot, it leverages advanced language models to provide context-aware code completions and creative copywriting assistance, enhancing your productivity and creativity directly within the Geany editor.
 
+## 🚀 **Quick Start - Python Version (Recommended)**
+
+**New Enhanced Python Implementation with Agent Capabilities!**
+
+```bash
+git clone https://github.com/skizap/geany-copilot.git
+cd geany-copilot
+./install.sh
+```
+
+The automated installer handles everything: dependency installation, legacy file management, and plugin setup. See [INSTALL_GUIDE.md](INSTALL_GUIDE.md) for detailed instructions.
+
+### **✨ Python Version Features**
+- 🤖 **Agent Intelligence**: Multi-turn conversations with context retention
+- 🔌 **Enhanced API Support**: DeepSeek, OpenAI, and custom providers
+- 🎨 **Modern UI**: GTK-based dialogs with comprehensive functionality
+- 🛡️ **Robust Error Handling**: Graceful degradation and recovery
+- 📊 **Comprehensive Testing**: Complete validation and logging
+- 🔧 **Easy Installation**: Automated setup with one command
+
+### **📁 Version Comparison**
+
+| Feature | Python Version | Lua Version (Legacy) |
+|---------|----------------|----------------------|
+| **Agent Conversations** | ✅ Multi-turn with context | ❌ Single requests only |
+| **API Support** | ✅ DeepSeek + OpenAI + Custom | ✅ OpenAI compatible |
+| **User Interface** | ✅ Modern GTK dialogs | ✅ Basic dialogs |
+| **Error Handling** | ✅ Comprehensive | ✅ Basic |
+| **Installation** | ✅ Automated script | ⚠️ Manual setup |
+| **Testing** | ✅ Full test suite | ❌ No tests |
+| **Maintenance** | ✅ Active development | 🔒 Legacy support |
+
+**💡 Recommendation**: Use the Python version for new installations. Legacy Lua files are preserved in the `OLD/` directory.
+
 ## Table of Contents
 
+- [Quick Start - Python Version](#-quick-start---python-version-recommended)
 - [Features](#features)
 - [Installation](#installation)
+  - [Python Version (Recommended)](#python-version-recommended)
+  - [Lua Version (Legacy)](#lua-version-legacy)
 - [Configuration](#configuration)
 - [Usage](#usage)
   - [Code Assistance](#code-assistance)
   - [Copywriting Assistance](#copywriting-assistance)
+- [Migration Guide](#migration-guide)
 - [Dependencies](#dependencies)
 - [Contributing](#contributing)
 - [License](#license)
@@ -27,27 +65,47 @@
 
 ## Installation
 
-### Prerequisites
+### **Python Version (Recommended)**
 
-- **Geany IDE:** Ensure you have [Geany](https://www.geany.org/) installed on your system.
-- **Lua Support:** Geany should be configured to support Lua scripting.
-- **Dependencies:** The plugin relies on the `lunajson` library for JSON handling and `cURL` for HTTP requests.
+**🚀 Automated Installation:**
 
-### Steps
+```bash
+git clone https://github.com/skizap/geany-copilot.git
+cd geany-copilot
+./install.sh
+```
 
-1. **Clone the Repository:**
+The installation script automatically:
+- ✅ Checks prerequisites (Python 3.6+, pip, Geany)
+- ✅ Moves legacy Lua files to `OLD/` directory
+- ✅ Installs Python dependencies
+- ✅ Copies plugin files to appropriate Geany directory
+- ✅ Sets proper file permissions
+- ✅ Verifies installation and runs tests
 
+**📋 Prerequisites:**
+- **Geany IDE** with GeanyPy plugin support
+- **Python 3.6+** (Python 3.8+ recommended)
+- **pip** package manager
+
+**📚 Detailed Instructions:** See [INSTALL_GUIDE.md](INSTALL_GUIDE.md) for comprehensive installation guide.
+
+### **Lua Version (Legacy)**
+
+**⚠️ Note**: The Lua version is preserved for compatibility but is no longer actively developed. New users should use the Python version.
+
+**Prerequisites:**
+- **Geany IDE** with Lua scripting support
+- **Dependencies**: `lunajson` library and `cURL`
+
+**Steps:**
+
+1. **Restore Legacy Files** (if you want to use the Lua version):
    ```bash
-   git clone https://github.com/DevElCuy/geany-copilot.git
+   cp OLD/*.lua ./
    ```
 
-2. **Navigate to the Plugin Directory:**
-
-   ```bash
-   cd geany-copilot
-   ```
-
-3. **Install Dependencies:**
+2. **Install Dependencies:**
 
    Ensure that the `lunajson` library is available. You can install it using LuaRocks:
 
@@ -174,9 +232,61 @@ Once installed and configured, Geany Copilot is ready to assist you with both co
 
 4. **Review and Apply Suggestions:**
 
-   The assistant will display a dialog with AI-generated suggestions. Choose the appropriate option to insert or replace text, depending on your configuration..
+   The assistant will display a dialog with AI-generated suggestions. Choose the appropriate option to insert or replace text, depending on your configuration.
+
+## Migration Guide
+
+### **From Lua to Python Version**
+
+If you're currently using the Lua version and want to upgrade to the Python version:
+
+1. **Backup Your Configuration** (optional):
+   ```bash
+   cp ~/.config/geany/plugins/geanylua/geany-copilot-python/config.json ~/geany-copilot-backup.json
+   ```
+
+2. **Run the Installation Script**:
+   ```bash
+   ./install.sh
+   ```
+   The script automatically moves your Lua files to the `OLD/` directory and installs the Python version.
+
+3. **Reconfigure API Settings**:
+   - Go to **Tools → Copilot → Settings** in Geany
+   - Enter your API key and configure preferences
+   - The Python version supports additional providers like DeepSeek
+
+4. **Test the New Features**:
+   - Try the enhanced code assistant with multi-turn conversations
+   - Explore the improved copywriting interface
+   - Experience better error handling and logging
+
+### **Reverting to Lua Version**
+
+If you need to revert to the Lua version:
+
+1. **Remove Python Plugin**:
+   ```bash
+   rm -rf ~/.config/geany/plugins/geany-copilot-python/
+   ```
+
+2. **Restore Lua Files**:
+   ```bash
+   cp OLD/*.lua ./
+   ```
+
+3. **Reconfigure Geany** to use the Lua scripts as before.
 
 ## Dependencies
+
+### **Python Version Dependencies**
+- **Python 3.6+** (automatically checked by installer)
+- **pip** package manager (automatically checked)
+- **requests** library (automatically installed)
+- **GTK+ 3.0+** (usually system-provided)
+- **GeanyPy** plugin (install via package manager)
+
+### **Lua Version Dependencies (Legacy)**
 
 - **Lua:** Ensure that Lua is installed and properly configured with Geany.
 - **lunajson:** A Lua library for JSON encoding and decoding. Install via LuaRocks:

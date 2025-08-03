@@ -303,6 +303,16 @@ class GeanyCopilotPlugin(geany.Plugin if geany else object):
         except Exception as e:
             self.logger.error(f"Error during cleanup: {e}")
 
+    def activate(self):
+        """Activate the plugin (for GeanyPy compatibility)."""
+        # Plugin is automatically activated on initialization
+        self.logger.info("Plugin activated")
+
+    def deactivate(self):
+        """Deactivate the plugin (for GeanyPy compatibility)."""
+        # Cleanup is handled in cleanup() method
+        self.logger.info("Plugin deactivated")
+
 
 # Plugin instance - this is what GeanyPy will load
 if geany:

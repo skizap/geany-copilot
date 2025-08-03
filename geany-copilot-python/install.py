@@ -15,20 +15,28 @@ from pathlib import Path
 
 def get_geany_plugin_dir():
     """Get the Geany plugin directory."""
-    # Common locations for Geany plugin directories
+    # GeanyPy plugins can be installed in several locations
+    # Based on official Geany documentation
     possible_dirs = [
+        # User-specific plugin directories (preferred)
+        Path.home() / ".config" / "geany" / "plugins",
+        Path.home() / ".geany" / "plugins",
+        # Legacy GeanyLua location (for compatibility)
         Path.home() / ".config" / "geany" / "plugins" / "geanylua",
         Path.home() / ".geany" / "plugins" / "geanylua",
-        Path("/usr/local/share/geany/plugins/geanylua"),
-        Path("/usr/share/geany/plugins/geanylua"),
+        # System-wide locations
+        Path("/usr/local/lib/geany"),
+        Path("/usr/lib/geany"),
+        Path("/usr/local/share/geany/plugins"),
+        Path("/usr/share/geany/plugins"),
     ]
-    
+
     for plugin_dir in possible_dirs:
-        if plugin_dir.exists():
+        if plugin_dir.exists() and os.access(plugin_dir, os.W_OK):
             return plugin_dir
-    
-    # Default to the most common location
-    default_dir = Path.home() / ".config" / "geany" / "plugins" / "geanylua"
+
+    # Default to the standard user plugin directory
+    default_dir = Path.home() / ".config" / "geany" / "plugins"
     default_dir.mkdir(parents=True, exist_ok=True)
     return default_dir
 

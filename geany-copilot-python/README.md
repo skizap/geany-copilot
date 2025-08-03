@@ -46,11 +46,13 @@ An AI-powered assistant plugin for Geany IDE that provides intelligent code assi
 
 1. **Clone or download** this plugin to your Geany plugins directory:
    ```bash
-   # For most Linux distributions:
-   cd ~/.config/geany/plugins/geanylua/
-   git clone https://github.com/your-repo/geany-copilot-python.git
-   
-   # Or download and extract the ZIP file to the same location
+   # Standard user plugin directory (recommended):
+   cd ~/.config/geany/plugins/
+   git clone https://github.com/skizap/geany-copilot.git
+   cd geany-copilot/geany-copilot-python/
+
+   # Or use the automated installer:
+   python3 install.py
    ```
 
 2. **Install Python dependencies**:
@@ -95,7 +97,7 @@ The plugin supports multiple AI providers:
 
 Settings are stored in JSON format at:
 ```
-~/.config/geany/plugins/geanylua/geany-copilot-python/config.json
+~/.config/geany/plugins/geany-copilot-python/config.json
 ```
 
 Example configuration:
@@ -251,7 +253,7 @@ python -c "import __init__; print('Plugin loaded successfully')"
 
 Logs are written to:
 ```
-~/.config/geany/plugins/geanylua/geany-copilot-python/logs/geany-copilot-python.log
+~/.config/geany/plugins/geany-copilot-python/logs/geany-copilot-python.log
 ```
 
 Enable debug logging by modifying the plugin initialization:
@@ -262,6 +264,13 @@ logger = setup_plugin_logging(debug=True)
 ## License
 
 MIT License - see LICENSE file for details.
+
+## References
+
+- **Geany Plugin Development**: [Official Hacking Guide](https://geany.org/manual/hacking.html)
+- **Geany Plugin API**: [API Documentation](https://www.geany.org/manual/reference/)
+- **GeanyPy**: Python plugin system for Geany IDE
+- **Your Repository**: [https://github.com/skizap/geany-copilot](https://github.com/skizap/geany-copilot)
 
 ## Acknowledgments
 
