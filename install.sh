@@ -137,6 +137,76 @@ select_install_dir() {
     done
 }
 
+# Function to check GeanyPy installation
+check_geanypy() {
+    print_status "Checking GeanyPy plugin availability"
+
+    # Check if GeanyPy packages are installed
+    local geanypy_packages=("geany-plugin-py" "geany-plugins-py" "geany-plugins")
+    local geanypy_found=false
+
+    for package in "${geanypy_packages[@]}"; do
+        if command_exists dpkg && dpkg -l | grep -q "^ii.*$package"; then
+            print_success "GeanyPy package found: $package"
+            geanypy_found=true
+            break
+        elif command_exists rpm && rpm -qa | grep -q "$package"; then
+            print_success "GeanyPy package found: $package"
+            geanypy_found=true
+            break
+        elif command_exists pacman && pacman -Q | grep -q "$package"; then
+            print_success "GeanyPy package found: $package"
+            geanypy_found=true
+            break
+        fi
+    done
+
+    if [ "$geanypy_found" = false ]; then
+        print_warning "GeanyPy package not detected"
+        print_status "Attempting to install GeanyPy..."
+
+        # Try to install GeanyPy based on the package manager
+        if command_exists apt; then
+            for package in "${geanypy_packages[@]}"; do
+                if sudo apt install -y "$package" 2>/dev/null; then
+                    print_success "Successfully installed $package"
+                    geanypy_found=true
+                    break
+                fi
+            done
+        elif command_exists dnf; then
+            if sudo dnf install -y geany-plugins-geanypy 2>/dev/null; then
+                print_success "Successfully installed geany-plugins-geanypy"
+                geanypy_found=true
+            fi
+        elif command_exists pacman; then
+            if sudo pacman -S --noconfirm geany-plugins 2>/dev/null; then
+                print_success "Successfully installed geany-plugins"
+                geanypy_found=true
+            fi
+        fi
+
+        if [ "$geanypy_found" = false ]; then
+            print_warning "Could not automatically install GeanyPy"
+            print_warning "Please install GeanyPy manually or use the troubleshooting script:"
+            print_warning "  ./troubleshoot_geanypy.sh"
+            print_warning "Or see GEANYPY_INSTALLATION.md for detailed instructions"
+        fi
+    fi
+
+    # Check Python GTK dependencies
+    print_status "Checking Python GTK dependencies"
+    if python3 -c "import gi; gi.require_version('Gtk', '3.0'); from gi.repository import Gtk" 2>/dev/null; then
+        print_success "Python GTK bindings are working"
+    else
+        print_warning "Python GTK bindings may have issues"
+        print_status "Installing Python GTK dependencies..."
+        if command_exists apt; then
+            sudo apt install -y python3-gi python3-gi-cairo gir1.2-gtk-3.0 2>/dev/null || true
+        fi
+    fi
+}
+
 # Function to check prerequisites
 check_prerequisites() {
     print_header "🔍 Checking Prerequisites"
@@ -167,6 +237,9 @@ check_prerequisites() {
     else
         print_warning "Geany not found in PATH (may still be installed)"
     fi
+
+    # Check GeanyPy
+    check_geanypy
     
     # Check for source directory
     if [ ! -d "$PYTHON_SOURCE_DIR" ]; then

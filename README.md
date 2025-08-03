@@ -284,7 +284,7 @@ If you need to revert to the Lua version:
 - **pip** package manager (automatically checked)
 - **requests** library (automatically installed)
 - **GTK+ 3.0+** (usually system-provided)
-- **GeanyPy** plugin (install via package manager)
+- **GeanyPy** plugin (see [GeanyPy Installation Guide](#geanypy-installation-guide) below)
 
 ### **Lua Version Dependencies (Legacy)**
 
@@ -304,6 +304,90 @@ If you need to revert to the Lua version:
   # For macOS using Homebrew
   brew install curl
   ```
+
+## GeanyPy Installation Guide
+
+### **For Linux Mint Users (Your System)**
+
+Since you're using **Linux Mint with Geany 2.1.0**, here are the specific steps to install GeanyPy:
+
+#### **Quick Installation**
+```bash
+# Update package list
+sudo apt update
+
+# Install GeanyPy (try these in order)
+sudo apt install geany-plugin-py
+# OR if the above fails:
+sudo apt install geany-plugins
+
+# Install Python GTK dependencies
+sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0
+```
+
+#### **Verification Steps**
+1. **Restart Geany completely**: `killall geany && geany`
+2. **Open Plugin Manager**: Tools → Plugin Manager
+3. **Look for GeanyPy**: Should appear in the plugin list
+4. **Enable GeanyPy**: Check the checkbox and click OK
+5. **Test**: Look for Python plugin support
+
+#### **Troubleshooting Script**
+If GeanyPy doesn't appear, run our troubleshooting script:
+```bash
+./troubleshoot_geanypy.sh
+```
+
+This script will:
+- ✅ Detect your exact Linux Mint version
+- ✅ Check for GeanyPy packages
+- ✅ Install missing dependencies
+- ✅ Test Python GTK bindings
+- ✅ Create a test plugin to verify functionality
+- ✅ Provide specific fixes for your system
+
+#### **Alternative Package Names**
+Different Linux distributions use different package names:
+
+| Distribution | Package Name |
+|--------------|--------------|
+| **Linux Mint/Ubuntu/Debian** | `geany-plugin-py` or `geany-plugins` |
+| **Fedora/CentOS** | `geany-plugins-geanypy` |
+| **Arch Linux** | `geany-plugins` |
+| **openSUSE** | `geany-plugin-geanypy` |
+
+#### **Manual Verification**
+Check if GeanyPy is installed:
+```bash
+# Check installed packages
+dpkg -l | grep geany-plugin
+
+# Look for GeanyPy files
+find /usr -name "*geanypy*" 2>/dev/null
+find /usr -name "*py.so" 2>/dev/null
+
+# Test Python GTK
+python3 -c "import gi; gi.require_version('Gtk', '3.0'); from gi.repository import Gtk; print('GTK OK')"
+```
+
+#### **If GeanyPy Still Doesn't Work**
+1. **Check detailed guide**: See [GEANYPY_INSTALLATION.md](GEANYPY_INSTALLATION.md)
+2. **Use troubleshooting script**: `./troubleshoot_geanypy.sh`
+3. **Fallback to Lua version**: Files preserved in `OLD/` directory
+4. **Report issue**: Include your system details and error messages
+
+### **Understanding GeanyPy vs Other Plugins**
+
+**GeanyPy** is special because it's a "plugin framework" that allows Python scripts to act as Geany plugins:
+
+- **Regular Geany plugins**: Written in C/C++, compiled as `.so` files
+- **GeanyPy plugins**: Written in Python, loaded through GeanyPy framework
+- **GeanyLua plugins**: Written in Lua (what we're migrating from)
+
+**Why GeanyPy is Required:**
+- Our Python plugin uses GeanyPy's API to integrate with Geany
+- Without GeanyPy, Python plugins cannot access Geany's interface
+- GeanyPy provides the bridge between Python and Geany's C API
 
 ## Contributing
 
