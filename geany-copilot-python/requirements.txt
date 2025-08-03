@@ -1,0 +1,48 @@
+# Requirements for Geany Copilot Python Plugin
+
+# HTTP requests for API communication
+requests>=2.25.0
+
+# JSON handling (built-in, but listed for clarity)
+# json
+
+# Logging (built-in)
+# logging
+
+# Path handling (built-in)
+# pathlib
+
+# Type hints (built-in in Python 3.5+)
+# typing
+
+# Date/time handling (built-in)
+# datetime
+
+# Regular expressions (built-in)
+# re
+
+# Operating system interface (built-in)
+# os
+
+# Optional: Enhanced HTTP client (alternative to requests)
+# httpx>=0.24.0
+
+# Optional: Async support (if needed in future)
+# asyncio
+
+# Development dependencies (optional)
+# pytest>=6.0.0
+# pytest-cov>=2.10.0
+# black>=21.0.0
+# flake8>=3.8.0
+# mypy>=0.800
+
+# Note: GTK and Geany bindings are provided by the system/Geany installation
+# and cannot be installed via pip. They must be available in the system
+# where Geany is installed.
+
+# System requirements (not installable via pip):
+# - Python 3.6+
+# - GTK+ 3.x or 2.x (depending on Geany version)
+# - Geany with GeanyPy plugin enabled
+# - PyGTK or PyGObject (depending on GTK version)
