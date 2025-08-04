@@ -184,11 +184,52 @@ class CodeAssistant:
             )
             
             return response
-            
+
         except Exception as e:
             error_msg = f"Error requesting streaming assistance: {e}"
             self.logger.error(error_msg)
             return APIResponse(success=False, content="", error=error_msg)
+
+    def request_assistance_debounced(self, request: str,
+                                   callback: callable,
+                                   task_type: Optional[CodeTaskType] = None,
+                                   delay: float = 1.0):
+        """
+        Request code assistance with debouncing to prevent excessive API calls.
+
+        Args:
+            request: User's request for assistance
+            callback: Function to call with the response
+            task_type: Type of task (optional, will be inferred if not provided)
+            delay: Debounce delay in seconds
+        """
+        try:
+            # Generate debounce key based on request content
+            debounce_key = f"code_assist_{hash(request)}"
+
+            # Define the actual request function
+            def make_request():
+                try:
+                    response = self.request_assistance(request, task_type)
+                    callback(response)
+                except Exception as e:
+                    error_response = APIResponse(success=False, content="", error=str(e))
+                    callback(error_response)
+
+            # Use the AI agent's performance manager for debouncing
+            if hasattr(self.ai_agent, 'performance_manager'):
+                self.ai_agent.performance_manager.debounce_request(
+                    debounce_key, make_request
+                )
+            else:
+                # Fallback to immediate execution if no performance manager
+                make_request()
+
+        except Exception as e:
+            error_msg = f"Error in debounced assistance request: {e}"
+            self.logger.error(error_msg)
+            error_response = APIResponse(success=False, content="", error=error_msg)
+            callback(error_response)
     
     def analyze_code(self, code: str, language: str = "") -> List[CodeSuggestion]:
         """

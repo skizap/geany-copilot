@@ -51,24 +51,36 @@ def get_current_document():
 def get_selected_text() -> Optional[str]:
     """
     Get the currently selected text in the editor.
-    
+
     Returns:
         Selected text or None if no selection
     """
     if not GEANY_AVAILABLE:
         logger.warning("Geany not available")
         return None
-    
+
     try:
         current_doc = get_current_document()
         if not current_doc or not current_doc.editor:
             return None
-        
-        # This is a simplified version - actual implementation would need
-        # to use Scintilla editor methods to get selection
-        # For now, return placeholder
-        return None  # Placeholder
-        
+
+        # Get the Scintilla editor object
+        editor = current_doc.editor
+        scintilla = editor.scintilla
+
+        # Get selection start and end positions
+        selection_start = scintilla.get_selection_start()
+        selection_end = scintilla.get_selection_end()
+
+        # If start equals end, there's no selection
+        if selection_start == selection_end:
+            return None
+
+        # Get the selected text
+        selected_text = scintilla.get_text_range(selection_start, selection_end)
+
+        return selected_text if selected_text else None
+
     except Exception as e:
         logger.error(f"Error getting selected text: {e}")
         return None
@@ -77,28 +89,36 @@ def get_selected_text() -> Optional[str]:
 def replace_selected_text(new_text: str) -> bool:
     """
     Replace the currently selected text with new text.
-    
+
     Args:
         new_text: Text to replace selection with
-        
+
     Returns:
         True if successful, False otherwise
     """
     if not GEANY_AVAILABLE:
         logger.warning("Geany not available")
         return False
-    
+
     try:
         current_doc = get_current_document()
         if not current_doc or not current_doc.editor:
             return False
-        
-        # This is a simplified version - actual implementation would need
-        # to use Scintilla editor methods to replace selection
-        # For now, return placeholder
-        logger.info(f"Would replace selected text with: {new_text[:50]}...")
-        return True  # Placeholder
-        
+
+        # Get the Scintilla editor object
+        editor = current_doc.editor
+        scintilla = editor.scintilla
+
+        # Get selection start and end positions
+        selection_start = scintilla.get_selection_start()
+        selection_end = scintilla.get_selection_end()
+
+        # Replace the selected text (or insert at cursor if no selection)
+        scintilla.replace_sel(new_text)
+
+        logger.info(f"Successfully replaced text with: {new_text[:50]}...")
+        return True
+
     except Exception as e:
         logger.error(f"Error replacing selected text: {e}")
         return False
@@ -107,24 +127,33 @@ def replace_selected_text(new_text: str) -> bool:
 def get_cursor_position() -> Tuple[int, int]:
     """
     Get the current cursor position.
-    
+
     Returns:
         Tuple of (line, column) or (0, 0) if unavailable
     """
     if not GEANY_AVAILABLE:
         logger.warning("Geany not available")
         return (0, 0)
-    
+
     try:
         current_doc = get_current_document()
         if not current_doc or not current_doc.editor:
             return (0, 0)
-        
-        # This is a simplified version - actual implementation would need
-        # to use Scintilla editor methods to get cursor position
-        # For now, return placeholder
-        return (1, 1)  # Placeholder
-        
+
+        # Get the Scintilla editor object
+        editor = current_doc.editor
+        scintilla = editor.scintilla
+
+        # Get current cursor position
+        cursor_pos = scintilla.get_current_pos()
+
+        # Convert position to line and column
+        line = scintilla.line_from_position(cursor_pos)
+        column = scintilla.get_column(cursor_pos)
+
+        # Return 1-based line and column numbers
+        return (line + 1, column + 1)
+
     except Exception as e:
         logger.error(f"Error getting cursor position: {e}")
         return (0, 0)
@@ -133,24 +162,28 @@ def get_cursor_position() -> Tuple[int, int]:
 def get_document_text() -> Optional[str]:
     """
     Get the full text of the current document.
-    
+
     Returns:
         Document text or None if unavailable
     """
     if not GEANY_AVAILABLE:
         logger.warning("Geany not available")
         return None
-    
+
     try:
         current_doc = get_current_document()
-        if not current_doc:
+        if not current_doc or not current_doc.editor:
             return None
-        
-        # This is a simplified version - actual implementation would need
-        # to use Scintilla editor methods to get document text
-        # For now, return placeholder
-        return ""  # Placeholder
-        
+
+        # Get the Scintilla editor object
+        editor = current_doc.editor
+        scintilla = editor.scintilla
+
+        # Get all text from the document
+        document_text = scintilla.get_text()
+
+        return document_text
+
     except Exception as e:
         logger.error(f"Error getting document text: {e}")
         return None
@@ -159,27 +192,37 @@ def get_document_text() -> Optional[str]:
 def insert_text_at_cursor(text: str) -> bool:
     """
     Insert text at the current cursor position.
-    
+
     Args:
         text: Text to insert
-        
+
     Returns:
         True if successful, False otherwise
     """
     if not GEANY_AVAILABLE:
         logger.warning("Geany not available")
         return False
-    
+
     try:
         current_doc = get_current_document()
         if not current_doc or not current_doc.editor:
             return False
-        
-        # This is a simplified version - actual implementation would need
-        # to use Scintilla editor methods to insert text
-        logger.info(f"Would insert text at cursor: {text[:50]}...")
-        return True  # Placeholder
-        
+
+        # Get the Scintilla editor object
+        editor = current_doc.editor
+        scintilla = editor.scintilla
+
+        # Insert text at current cursor position
+        cursor_pos = scintilla.get_current_pos()
+        scintilla.insert_text(cursor_pos, text)
+
+        # Move cursor to end of inserted text
+        new_pos = cursor_pos + len(text)
+        scintilla.goto_pos(new_pos)
+
+        logger.info(f"Successfully inserted text at cursor: {text[:50]}...")
+        return True
+
     except Exception as e:
         logger.error(f"Error inserting text at cursor: {e}")
         return False
@@ -188,28 +231,89 @@ def insert_text_at_cursor(text: str) -> bool:
 def get_line_text(line_number: int) -> Optional[str]:
     """
     Get the text of a specific line.
-    
+
     Args:
         line_number: Line number (1-based)
-        
+
     Returns:
         Line text or None if unavailable
     """
     if not GEANY_AVAILABLE:
         logger.warning("Geany not available")
         return None
-    
+
     try:
         current_doc = get_current_document()
         if not current_doc or not current_doc.editor:
             return None
-        
-        # This is a simplified version - actual implementation would need
-        # to use Scintilla editor methods to get line text
-        return ""  # Placeholder
-        
+
+        # Get the Scintilla editor object
+        editor = current_doc.editor
+        scintilla = editor.scintilla
+
+        # Convert to 0-based line number
+        zero_based_line = line_number - 1
+
+        # Check if line number is valid
+        total_lines = scintilla.get_line_count()
+        if zero_based_line < 0 or zero_based_line >= total_lines:
+            return None
+
+        # Get line text
+        line_text = scintilla.get_line(zero_based_line)
+
+        return line_text
+
     except Exception as e:
         logger.error(f"Error getting line text: {e}")
+        return None
+
+
+def get_context_around_cursor(context_length: int = 200) -> Optional[str]:
+    """
+    Get context around the current cursor position.
+    If text is selected, returns the selection. Otherwise, returns text
+    around the cursor position.
+
+    Args:
+        context_length: Number of characters to include around cursor
+
+    Returns:
+        Context text or None if unavailable
+    """
+    if not GEANY_AVAILABLE:
+        logger.warning("Geany not available")
+        return None
+
+    try:
+        # First try to get selected text
+        selected_text = get_selected_text()
+        if selected_text:
+            return selected_text
+
+        # If no selection, get context around cursor
+        current_doc = get_current_document()
+        if not current_doc or not current_doc.editor:
+            return None
+
+        # Get the Scintilla editor object
+        editor = current_doc.editor
+        scintilla = editor.scintilla
+
+        # Get current cursor position
+        cursor_pos = scintilla.get_current_pos()
+
+        # Calculate start and end positions for context
+        start_pos = max(0, cursor_pos - context_length // 2)
+        end_pos = min(scintilla.get_length(), cursor_pos + context_length // 2)
+
+        # Get the context text
+        context_text = scintilla.get_text_range(start_pos, end_pos)
+
+        return context_text
+
+    except Exception as e:
+        logger.error(f"Error getting context around cursor: {e}")
         return None
 
 

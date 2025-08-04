@@ -240,13 +240,8 @@ class GeanyCopilotPlugin(geany.Plugin if geany else object):
     def _get_current_selection(self) -> Optional[str]:
         """Get the currently selected text in the editor."""
         try:
-            current_doc = geany.document.get_current()
-            if current_doc and current_doc.editor:
-                # Get selection from editor
-                # Note: This is a simplified version - actual implementation
-                # would need to use Scintilla editor methods
-                return ""  # Placeholder
-            return None
+            from utils.helpers import get_selected_text
+            return get_selected_text()
         except Exception as e:
             self.logger.error(f"Error getting selection: {e}")
             return None

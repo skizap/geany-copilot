@@ -12,6 +12,8 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from pathlib import Path
 
+from .language_detector import LanguageDetector, LanguageInfo
+
 
 @dataclass
 class FileInfo:
@@ -60,6 +62,7 @@ class ContextAnalyzer:
     def __init__(self):
         """Initialize the context analyzer."""
         self.logger = logging.getLogger(__name__)
+        self.language_detector = LanguageDetector()
         
         # Language detection patterns
         self.language_patterns = {
@@ -75,67 +78,271 @@ class ContextAnalyzer:
     
     def get_file_info(self) -> Optional[FileInfo]:
         """
-        Get information about the current file.
-        
+        Get information about the current file with enhanced language detection.
+
         Returns:
             FileInfo object or None if no file is open
         """
         try:
-            import geany
-            
-            current_doc = geany.document.get_current()
+            from utils.helpers import get_current_document, get_document_text
+
+            current_doc = get_current_document()
             if not current_doc:
                 return None
-            
+
             filename = current_doc.file_name or "Untitled"
             extension = Path(filename).suffix.lower() if filename != "Untitled" else ""
-            
-            # Get language from Geany's filetype detection
-            language = "text"
+
+            # Get Geany's filetype detection
+            geany_filetype = None
             if hasattr(current_doc, 'file_type') and current_doc.file_type:
-                language = current_doc.file_type.name.lower()
-            
+                geany_filetype = current_doc.file_type.name
+
+            # Get document content for language detection
+            content = get_document_text()
+
+            # Use advanced language detection
+            language_info = self.language_detector.detect_language(
+                filename=filename if filename != "Untitled" else None,
+                content=content,
+                geany_filetype=geany_filetype
+            )
+
             encoding = getattr(current_doc, 'encoding', 'utf-8')
             is_modified = getattr(current_doc, 'text_changed', False)
-            
-            # Count lines (simplified - would need editor access for accurate count)
+
+            # Get accurate line count
             line_count = 0
-            
+            if current_doc.editor and current_doc.editor.scintilla:
+                line_count = current_doc.editor.scintilla.get_line_count()
+
             return FileInfo(
                 filename=filename,
                 extension=extension,
-                language=language,
+                language=language_info.name,
                 encoding=encoding,
                 line_count=line_count,
                 is_modified=is_modified
             )
-            
+
         except Exception as e:
             self.logger.error(f"Error getting file info: {e}")
             return None
+
+    def get_language_info(self) -> Optional[LanguageInfo]:
+        """
+        Get detailed language information for the current file.
+
+        Returns:
+            LanguageInfo object with detection details
+        """
+        try:
+            from utils.helpers import get_current_document, get_document_text
+
+            current_doc = get_current_document()
+            if not current_doc:
+                return None
+
+            filename = current_doc.file_name or "Untitled"
+
+            # Get Geany's filetype detection
+            geany_filetype = None
+            if hasattr(current_doc, 'file_type') and current_doc.file_type:
+                geany_filetype = current_doc.file_type.name
+
+            # Get document content for language detection
+            content = get_document_text()
+
+            # Use advanced language detection
+            language_info = self.language_detector.detect_language(
+                filename=filename if filename != "Untitled" else None,
+                content=content,
+                geany_filetype=geany_filetype
+            )
+
+            return language_info
+
+        except Exception as e:
+            self.logger.error(f"Error getting language info: {e}")
+            return None
+
+    def get_language_context(self) -> Dict[str, Any]:
+        """
+        Get language-specific context for AI prompts.
+
+        Returns:
+            Dictionary with language context information
+        """
+        try:
+            language_info = self.get_language_info()
+            if not language_info:
+                return {}
+
+            language = language_info.name
+            category = self.language_detector.get_language_category(language)
+
+            context = {
+                'language': language,
+                'category': category,
+                'confidence': language_info.confidence,
+                'features': language_info.features,
+                'suggestions': self._get_language_suggestions(language, category),
+                'best_practices': self._get_language_best_practices(language),
+                'common_patterns': self._get_language_patterns(language)
+            }
+
+            return context
+
+        except Exception as e:
+            self.logger.error(f"Error getting language context: {e}")
+            return {}
+
+    def _get_language_suggestions(self, language: str, category: str) -> List[str]:
+        """Get language-specific suggestions for AI assistance."""
+        suggestions = {
+            'python': [
+                "Follow PEP 8 style guidelines",
+                "Use type hints for better code clarity",
+                "Consider using list comprehensions where appropriate",
+                "Use context managers (with statements) for resource handling",
+                "Follow the principle of least surprise"
+            ],
+            'javascript': [
+                "Use const/let instead of var",
+                "Consider using arrow functions for concise syntax",
+                "Use async/await for asynchronous operations",
+                "Follow consistent naming conventions",
+                "Use strict mode ('use strict')"
+            ],
+            'java': [
+                "Follow Java naming conventions",
+                "Use proper exception handling",
+                "Consider using generics for type safety",
+                "Use StringBuilder for string concatenation in loops",
+                "Follow SOLID principles"
+            ],
+            'c': [
+                "Always check return values of functions",
+                "Use proper memory management (malloc/free)",
+                "Initialize variables before use",
+                "Use const for read-only data",
+                "Avoid buffer overflows"
+            ],
+            'cpp': [
+                "Use RAII (Resource Acquisition Is Initialization)",
+                "Prefer smart pointers over raw pointers",
+                "Use const correctness",
+                "Follow the rule of three/five/zero",
+                "Use STL containers and algorithms"
+            ],
+            'html': [
+                "Use semantic HTML elements",
+                "Include proper DOCTYPE declaration",
+                "Use alt attributes for images",
+                "Ensure proper nesting of elements",
+                "Use meaningful class and id names"
+            ],
+            'css': [
+                "Use consistent naming conventions",
+                "Organize CSS with logical structure",
+                "Use CSS Grid or Flexbox for layouts",
+                "Minimize use of !important",
+                "Consider mobile-first responsive design"
+            ]
+        }
+
+        return suggestions.get(language, [
+            f"Follow {language} best practices",
+            "Write clean, readable code",
+            "Use consistent formatting",
+            "Add appropriate comments"
+        ])
+
+    def _get_language_best_practices(self, language: str) -> List[str]:
+        """Get language-specific best practices."""
+        practices = {
+            'python': [
+                "Use virtual environments",
+                "Write docstrings for functions and classes",
+                "Use meaningful variable names",
+                "Keep functions small and focused"
+            ],
+            'javascript': [
+                "Use ESLint for code quality",
+                "Avoid global variables",
+                "Use proper error handling",
+                "Keep functions pure when possible"
+            ],
+            'java': [
+                "Use proper package structure",
+                "Write unit tests",
+                "Use dependency injection",
+                "Follow MVC pattern where appropriate"
+            ]
+        }
+
+        return practices.get(language, [
+            "Write maintainable code",
+            "Use version control",
+            "Test your code",
+            "Document your work"
+        ])
+
+    def _get_language_patterns(self, language: str) -> List[str]:
+        """Get common patterns for the language."""
+        patterns = {
+            'python': [
+                "if __name__ == '__main__':",
+                "with open(filename) as f:",
+                "try/except blocks",
+                "List comprehensions",
+                "Generator expressions"
+            ],
+            'javascript': [
+                "Module imports/exports",
+                "Promise chains",
+                "Event listeners",
+                "Callback functions",
+                "Object destructuring"
+            ],
+            'java': [
+                "try-with-resources",
+                "Builder pattern",
+                "Factory pattern",
+                "Singleton pattern",
+                "Observer pattern"
+            ]
+        }
+
+        return patterns.get(language, [])
     
     def get_selection_info(self) -> Tuple[str, int, int]:
         """
         Get current selection information.
-        
+
         Returns:
             Tuple of (selected_text, start_pos, end_pos)
         """
         try:
-            import geany
-            
-            current_doc = geany.document.get_current()
-            if not current_doc or not current_doc.editor:
+            from utils.helpers import get_selected_text, get_current_document
+
+            selected_text = get_selected_text()
+            if not selected_text:
                 return "", 0, 0
-            
-            # This is a simplified version - actual implementation would need
-            # to use Scintilla editor methods to get selection
-            selected_text = ""  # Placeholder
-            start_pos = 0
-            end_pos = 0
-            
+
+            # Get selection positions
+            current_doc = get_current_document()
+            if not current_doc or not current_doc.editor:
+                return selected_text, 0, 0
+
+            editor = current_doc.editor
+            scintilla = editor.scintilla
+
+            start_pos = scintilla.get_selection_start()
+            end_pos = scintilla.get_selection_end()
+
             return selected_text, start_pos, end_pos
-            
+
         except Exception as e:
             self.logger.error(f"Error getting selection info: {e}")
             return "", 0, 0
@@ -143,27 +350,34 @@ class ContextAnalyzer:
     def get_surrounding_text(self, position: int, context_length: int = 200) -> str:
         """
         Get text surrounding the specified position.
-        
+
         Args:
             position: Cursor position
             context_length: Number of characters to include on each side
-            
+
         Returns:
             Surrounding text
         """
         try:
-            import geany
-            
-            current_doc = geany.document.get_current()
+            from utils.helpers import get_current_document
+
+            current_doc = get_current_document()
             if not current_doc or not current_doc.editor:
                 return ""
-            
-            # This is a simplified version - actual implementation would need
-            # to use Scintilla editor methods to get text
-            surrounding_text = ""  # Placeholder
-            
+
+            # Get the Scintilla editor object
+            editor = current_doc.editor
+            scintilla = editor.scintilla
+
+            # Calculate start and end positions
+            start_pos = max(0, position - context_length)
+            end_pos = min(scintilla.get_length(), position + context_length)
+
+            # Get the surrounding text
+            surrounding_text = scintilla.get_text_range(start_pos, end_pos)
+
             return surrounding_text
-            
+
         except Exception as e:
             self.logger.error(f"Error getting surrounding text: {e}")
             return ""
@@ -395,31 +609,43 @@ class ContextAnalyzer:
             return ""
     
     def _format_code_context(self, context: CodeContext) -> str:
-        """Format code context for AI."""
+        """Format code context for AI with enhanced language information."""
         parts = []
-        
+
         # File information
         parts.append(f"File: {context.file_info.filename}")
         parts.append(f"Language: {context.file_info.language}")
         parts.append(f"Position: Line {context.line_number}, Column {context.column_number}")
-        
+
+        # Enhanced language context
+        language_context = self.get_language_context()
+        if language_context:
+            parts.append(f"Language Category: {language_context.get('category', 'unknown')}")
+            if language_context.get('confidence', 0) < 0.8:
+                parts.append(f"Language Detection Confidence: {language_context.get('confidence', 0):.2f}")
+
         # Code structure context
         if context.class_context:
             parts.append(f"Class: {context.class_context}")
         if context.function_context:
             parts.append(f"Function: {context.function_context}")
-        
+
         # Imports
         if context.imports:
             parts.append(f"Imports: {', '.join(context.imports[:5])}")  # Limit to first 5
-        
+
+        # Language-specific suggestions
+        if language_context and language_context.get('suggestions'):
+            suggestions = language_context['suggestions'][:3]  # Limit to top 3
+            parts.append(f"Language Guidelines: {'; '.join(suggestions)}")
+
         # Selected/surrounding text
         if context.selected_text:
             parts.append(f"\nSelected code:\n```{context.file_info.language}\n{context.selected_text}\n```")
-        
+
         if context.surrounding_text and context.surrounding_text != context.selected_text:
             parts.append(f"\nSurrounding context:\n```{context.file_info.language}\n{context.surrounding_text}\n```")
-        
+
         return "\n".join(parts)
     
     def _format_writing_context(self, context: WritingContext) -> str:

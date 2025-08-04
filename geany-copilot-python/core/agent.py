@@ -14,6 +14,7 @@ from datetime import datetime
 
 from .api_client import APIClient, ChatMessage, APIResponse
 from .context import ContextAnalyzer
+from .cache import PerformanceManager
 
 
 class ConversationState(Enum):
@@ -111,15 +112,19 @@ class AIAgent:
         # Initialize components
         self.api_client = APIClient(config_manager)
         self.context_analyzer = ContextAnalyzer()
-        
+
+        # Performance management
+        performance_config = config_manager.get('performance', {})
+        self.performance_manager = PerformanceManager(performance_config)
+
         # Conversation management
         self.conversations: Dict[str, Conversation] = {}
         self.active_conversation: Optional[str] = None
-        
+
         # Agent state
         self.is_busy = False
         self.last_error: Optional[str] = None
-        
+
         # Callbacks for UI updates
         self.on_thinking_start: Optional[Callable] = None
         self.on_thinking_end: Optional[Callable] = None
@@ -190,12 +195,32 @@ class AIAgent:
             # Prepare messages
             messages = conversation.get_messages_for_api(system_prompt)
             messages.append(ChatMessage(role="user", content=user_message))
-            
+
+            # Check cache for non-streaming requests
+            cache_key = None
+            if not stream:
+                cache_key = self.performance_manager.generate_cache_key(
+                    conversation.agent_type, user_message, conversation.context
+                )
+                cached_response = self.performance_manager.get_cached_response(cache_key)
+                if cached_response:
+                    self.logger.debug("Using cached response")
+                    # Add cached response to conversation
+                    conversation.add_turn(
+                        user_message=user_message,
+                        assistant_response=cached_response.content,
+                        context=conversation.context,
+                        model=cached_response.model,
+                        usage=cached_response.usage
+                    )
+                    conversation.state = ConversationState.WAITING_FOR_INPUT
+                    return cached_response
+
             # Get response
             if stream:
                 return self._handle_streaming_response(conversation, user_message, messages)
             else:
-                return self._handle_single_response(conversation, user_message, messages)
+                return self._handle_single_response(conversation, user_message, messages, cache_key)
                 
         except Exception as e:
             error_msg = f"Error in conversation: {str(e)}"
@@ -211,9 +236,10 @@ class AIAgent:
             if self.on_thinking_end:
                 self.on_thinking_end()
     
-    def _handle_single_response(self, conversation: Conversation, 
-                               user_message: str, 
-                               messages: List[ChatMessage]) -> APIResponse:
+    def _handle_single_response(self, conversation: Conversation,
+                               user_message: str,
+                               messages: List[ChatMessage],
+                               cache_key: Optional[str] = None) -> APIResponse:
         """Handle a single (non-streaming) response."""
         conversation.state = ConversationState.RESPONDING
         
@@ -229,11 +255,15 @@ class AIAgent:
                 usage=response.usage
             )
             conversation.state = ConversationState.WAITING_FOR_INPUT
+
+            # Cache successful response
+            if cache_key:
+                self.performance_manager.cache_response(cache_key, response)
         else:
             conversation.state = ConversationState.ERROR
             if self.on_error:
                 self.on_error(response.error or "Unknown error")
-        
+
         return response
     
     def _handle_streaming_response(self, conversation: Conversation,
@@ -288,6 +318,36 @@ class AIAgent:
     def get_conversation(self, conversation_id: str) -> Optional[Conversation]:
         """Get a conversation by ID."""
         return self.conversations.get(conversation_id)
+
+    def cleanup(self):
+        """Cleanup agent resources and perform maintenance."""
+        try:
+            self.logger.info("Starting agent cleanup")
+
+            # Performance cleanup
+            self.performance_manager.cleanup()
+
+            # Clear old conversations (keep only recent ones)
+            if len(self.conversations) > 10:
+                # Sort by last activity and keep only the 10 most recent
+                sorted_conversations = sorted(
+                    self.conversations.items(),
+                    key=lambda x: x[1].last_activity,
+                    reverse=True
+                )
+
+                # Keep only the 10 most recent conversations
+                self.conversations = dict(sorted_conversations[:10])
+                self.logger.info(f"Cleaned up old conversations, kept {len(self.conversations)}")
+
+            self.logger.info("Agent cleanup completed")
+
+        except Exception as e:
+            self.logger.error(f"Error during agent cleanup: {e}")
+
+    def get_performance_stats(self) -> Dict[str, Any]:
+        """Get performance statistics."""
+        return self.performance_manager.get_performance_stats()
     
     def get_active_conversation(self) -> Optional[Conversation]:
         """Get the currently active conversation."""

@@ -72,7 +72,24 @@ class ConfigManager:
             "dialog_height": 600,
             "font_size": 10
         },
-        
+
+        # Performance Configuration
+        "performance": {
+            "cache": {
+                "max_size": 100,
+                "max_memory_mb": 50.0,
+                "ttl": 3600.0  # 1 hour
+            },
+            "debounce": {
+                "delay": 0.5  # 500ms
+            },
+            "memory": {
+                "auto_cleanup": True,
+                "cleanup_interval": 300,  # 5 minutes
+                "max_memory_mb": 200.0
+            }
+        },
+
         # System Prompts (will be loaded from separate files)
         "prompts": {
             "code_assistant": "",

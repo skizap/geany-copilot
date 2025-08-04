@@ -114,15 +114,105 @@ class CodeAssistantDialog(BaseDialog):
     def __init__(self, code_assistant, parent=None):
         """
         Initialize code assistant dialog.
-        
+
         Args:
             code_assistant: CodeAssistant instance
             parent: Parent window
         """
         self.code_assistant = code_assistant
         self.conversation_active = False
-        
+        self.streaming_active = False
+        self.current_response_buffer = ""
+        self.assistant_message_start = None
+
         super().__init__("Code Assistant", parent, 900, 700)
+
+        # Setup streaming callbacks
+        self._setup_streaming_callbacks()
+
+    def _setup_streaming_callbacks(self):
+        """Setup callbacks for streaming responses."""
+        if hasattr(self.code_assistant, 'ai_agent') and self.code_assistant.ai_agent:
+            agent = self.code_assistant.ai_agent
+            agent.on_thinking_start = self._on_thinking_start
+            agent.on_response_chunk = self._on_response_chunk
+            agent.on_error = self._on_streaming_error
+
+    def _on_thinking_start(self):
+        """Called when AI starts thinking."""
+        self._show_status("AI is thinking...")
+        self.send_button.set_sensitive(False)
+
+        # Start a new assistant message in the chat
+        self._start_assistant_message()
+
+    def _on_response_chunk(self, chunk: str):
+        """Called when a chunk of response is received."""
+        if not self.streaming_active:
+            return
+
+        # Add chunk to current response buffer
+        self.current_response_buffer += chunk
+
+        # Update the assistant message in real-time
+        self._update_assistant_message(self.current_response_buffer)
+
+        # Keep UI responsive
+        while gtk.events_pending():
+            gtk.main_iteration()
+
+    def _on_streaming_error(self, error: str):
+        """Called when a streaming error occurs."""
+        self.streaming_active = False
+        self._show_status(f"Error: {error}")
+        self.send_button.set_sensitive(True)
+
+        # Add error to chat if we were streaming
+        if self.current_response_buffer:
+            self._finalize_assistant_message()
+        self._add_to_chat(f"Error: {error}")
+
+    def _start_assistant_message(self):
+        """Start a new assistant message for streaming."""
+        self.streaming_active = True
+        self.current_response_buffer = ""
+
+        # Add initial assistant message
+        buffer = self.chat_text.get_buffer()
+        end_iter = buffer.get_end_iter()
+
+        if buffer.get_char_count() > 0:
+            buffer.insert(end_iter, "\n\n")
+            end_iter = buffer.get_end_iter()
+
+        buffer.insert(end_iter, "Assistant: ")
+
+        # Mark the start of the assistant message content
+        self.assistant_message_start = buffer.get_end_iter()
+
+    def _update_assistant_message(self, content: str):
+        """Update the assistant message content during streaming."""
+        if not self.assistant_message_start:
+            return
+
+        buffer = self.chat_text.get_buffer()
+        end_iter = buffer.get_end_iter()
+
+        # Replace content from the start mark to the end
+        buffer.delete(self.assistant_message_start, end_iter)
+        buffer.insert(self.assistant_message_start, content)
+
+        # Scroll to bottom
+        mark = buffer.get_insert()
+        self.chat_text.scroll_mark_onscreen(mark)
+
+    def _finalize_assistant_message(self):
+        """Finalize the assistant message after streaming completes."""
+        self.streaming_active = False
+        self.assistant_message_start = None
+        self.current_response_buffer = ""
+        self._show_status("Ready")
+        self.send_button.set_sensitive(True)
     
     def _setup_ui(self):
         """Setup the code assistant UI."""
@@ -187,7 +277,12 @@ class CodeAssistantDialog(BaseDialog):
         self.analyze_button = gtk.Button("Analyze Context")
         self.analyze_button.connect("clicked", self._on_analyze_context)
         button_hbox.pack_start(self.analyze_button, False, False, 0)
-        
+
+        # Add streaming toggle
+        self.streaming_check = gtk.CheckButton("Enable Streaming")
+        self.streaming_check.set_active(True)  # Default to streaming enabled
+        button_hbox.pack_start(self.streaming_check, False, False, 10)
+
         input_vbox.pack_start(button_hbox, False, False, 0)
         input_frame.add(input_vbox)
         main_vbox.pack_start(input_frame, False, True, 0)
@@ -215,34 +310,53 @@ class CodeAssistantDialog(BaseDialog):
             buffer = self.input_text.get_buffer()
             start, end = buffer.get_bounds()
             request = buffer.get_text(start, end, False).strip()
-            
+
             if not request:
                 self._show_status("Please enter a request")
                 return
-            
+
             # Clear input
             buffer.set_text("")
-            
+
             # Add request to chat
             self._add_to_chat(f"You: {request}")
-            
-            # Show thinking status
-            self._show_status("Thinking...")
-            self.send_button.set_sensitive(False)
-            
+
             # Start or continue conversation
             if not self.conversation_active:
                 self.code_assistant.start_assistance_session(request)
                 self.conversation_active = True
             else:
-                response = self.code_assistant.request_assistance(request)
-                self._handle_response(response)
-            
+                # Check if streaming is enabled
+                use_streaming = self.streaming_check.get_active()
+
+                if use_streaming:
+                    # Use streaming request
+                    response = self.code_assistant.request_assistance_stream(request)
+                    self._handle_streaming_response(response)
+                else:
+                    # Use regular request
+                    response = self.code_assistant.request_assistance(request)
+                    self._handle_response(response)
+
         except Exception as e:
             self.logger.error(f"Error sending request: {e}")
             self._show_status(f"Error: {e}")
             self.send_button.set_sensitive(True)
-    
+
+    def _handle_streaming_response(self, response):
+        """Handle streaming assistant response."""
+        try:
+            if response.success:
+                # Finalize the streaming message
+                self._finalize_assistant_message()
+            else:
+                # Handle error
+                self._on_streaming_error(response.error or "Unknown error")
+
+        except Exception as e:
+            self.logger.error(f"Error handling streaming response: {e}")
+            self._on_streaming_error(f"Error: {e}")
+
     def _handle_response(self, response):
         """Handle assistant response."""
         try:
@@ -318,7 +432,7 @@ class CopywriterDialog(BaseDialog):
     def __init__(self, copywriter_assistant, parent=None):
         """
         Initialize copywriter dialog.
-        
+
         Args:
             copywriter_assistant: CopywriterAssistant instance
             parent: Parent window
@@ -326,8 +440,79 @@ class CopywriterDialog(BaseDialog):
         self.copywriter_assistant = copywriter_assistant
         self.session_active = False
         self.original_text = ""
-        
+        self.streaming_active = False
+        self.current_response_buffer = ""
+
         super().__init__("Copywriter Assistant", parent, 900, 700)
+
+        # Setup streaming callbacks
+        self._setup_copywriter_streaming_callbacks()
+
+    def _setup_copywriter_streaming_callbacks(self):
+        """Setup callbacks for streaming responses in copywriter."""
+        if hasattr(self.copywriter_assistant, 'ai_agent') and self.copywriter_assistant.ai_agent:
+            agent = self.copywriter_assistant.ai_agent
+            agent.on_thinking_start = self._on_copywriter_thinking_start
+            agent.on_response_chunk = self._on_copywriter_response_chunk
+            agent.on_error = self._on_copywriter_streaming_error
+
+    def _on_copywriter_thinking_start(self):
+        """Called when AI starts thinking."""
+        self._show_status("AI is processing...")
+        self._disable_buttons()
+
+        # Clear the improved text area and prepare for streaming
+        self._clear_improved_text()
+        self.streaming_active = True
+        self.current_response_buffer = ""
+
+    def _on_copywriter_response_chunk(self, chunk: str):
+        """Called when a chunk of response is received."""
+        if not self.streaming_active:
+            return
+
+        # Add chunk to current response buffer
+        self.current_response_buffer += chunk
+
+        # Update the improved text in real-time
+        self._set_improved_text(self.current_response_buffer)
+
+        # Keep UI responsive
+        while gtk.events_pending():
+            gtk.main_iteration()
+
+    def _on_copywriter_streaming_error(self, error: str):
+        """Called when a streaming error occurs."""
+        self.streaming_active = False
+        self._show_status(f"Error: {error}")
+        self._enable_buttons()
+
+        # Show error in improved text area
+        self._set_improved_text(f"Error: {error}")
+
+    def _disable_buttons(self):
+        """Disable all action buttons during processing."""
+        self.improve_button.set_sensitive(False)
+        self.proofread_button.set_sensitive(False)
+        self.rewrite_button.set_sensitive(False)
+
+    def _enable_buttons(self):
+        """Enable all action buttons after processing."""
+        self.improve_button.set_sensitive(True)
+        self.proofread_button.set_sensitive(True)
+        self.rewrite_button.set_sensitive(True)
+
+    def _clear_improved_text(self):
+        """Clear the improved text area."""
+        buffer = self.improved_text_view.get_buffer()
+        buffer.set_text("")
+
+    def _finalize_copywriter_response(self):
+        """Finalize the copywriter response after streaming completes."""
+        self.streaming_active = False
+        self.current_response_buffer = ""
+        self._show_status("Processing complete")
+        self._enable_buttons()
     
     def _setup_ui(self):
         """Setup the copywriter UI."""
@@ -375,7 +560,12 @@ class CopywriterDialog(BaseDialog):
         self.rewrite_button = gtk.Button("Rewrite")
         self.rewrite_button.connect("clicked", self._on_rewrite)
         button_hbox.pack_start(self.rewrite_button, False, False, 0)
-        
+
+        # Add streaming toggle
+        self.streaming_check = gtk.CheckButton("Enable Streaming")
+        self.streaming_check.set_active(True)  # Default to streaming enabled
+        button_hbox.pack_start(self.streaming_check, False, False, 10)
+
         main_vbox.pack_start(button_hbox, False, False, 0)
         
         # Status bar
@@ -418,15 +608,56 @@ class CopywriterDialog(BaseDialog):
             if not text:
                 self._show_status("Please enter some text to work with")
                 return
-            
+
             # Start session if not active
             if not self.session_active:
                 self.copywriter_assistant.start_writing_session(text)
                 self.session_active = True
-            
+
+            # Check if streaming is enabled
+            use_streaming = self.streaming_check.get_active()
+
+            if use_streaming:
+                # Use streaming processing
+                self._process_text_streaming(action, text)
+            else:
+                # Use regular processing
+                self._process_text_regular(action, text)
+
+        except Exception as e:
+            self.logger.error(f"Error processing text: {e}")
+            self._show_status(f"Error: {e}")
+
+    def _process_text_streaming(self, action: str, text: str):
+        """Process text with streaming."""
+        try:
             # Show processing status
             self._show_status(f"Processing ({action})...")
-            
+
+            # Process based on action with streaming
+            if action == "improve":
+                response = self.copywriter_assistant.improve_text_stream(text)
+            elif action == "proofread":
+                response = self.copywriter_assistant.proofread_text_stream(text)
+            elif action == "rewrite":
+                response = self.copywriter_assistant.rewrite_text_stream(text)
+            else:
+                response = self.copywriter_assistant.improve_text_stream(text)
+
+            # Handle streaming response
+            self._handle_copywriter_streaming_response(response)
+
+        except Exception as e:
+            self.logger.error(f"Error in streaming processing: {e}")
+            self._on_copywriter_streaming_error(f"Error: {e}")
+
+    def _process_text_regular(self, action: str, text: str):
+        """Process text without streaming."""
+        try:
+            # Show processing status
+            self._show_status(f"Processing ({action})...")
+            self._disable_buttons()
+
             # Process based on action
             if action == "improve":
                 response = self.copywriter_assistant.improve_text(text)
@@ -436,17 +667,33 @@ class CopywriterDialog(BaseDialog):
                 response = self.copywriter_assistant.rewrite_text(text)
             else:
                 response = self.copywriter_assistant.improve_text(text)
-            
+
             # Handle response
             if response.success:
                 self._set_improved_text(response.content)
                 self._show_status("Processing complete")
             else:
                 self._show_status(f"Error: {response.error}")
-            
+
         except Exception as e:
-            self.logger.error(f"Error processing text: {e}")
+            self.logger.error(f"Error in regular processing: {e}")
             self._show_status(f"Error: {e}")
+        finally:
+            self._enable_buttons()
+
+    def _handle_copywriter_streaming_response(self, response):
+        """Handle streaming copywriter response."""
+        try:
+            if response.success:
+                # Finalize the streaming response
+                self._finalize_copywriter_response()
+            else:
+                # Handle error
+                self._on_copywriter_streaming_error(response.error or "Unknown error")
+
+        except Exception as e:
+            self.logger.error(f"Error handling streaming response: {e}")
+            self._on_copywriter_streaming_error(f"Error: {e}")
     
     def _show_status(self, message: str):
         """Show status message."""
