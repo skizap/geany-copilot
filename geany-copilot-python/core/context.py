@@ -349,14 +349,14 @@ class ContextAnalyzer:
     
     def get_surrounding_text(self, position: int, context_length: int = 200) -> str:
         """
-        Get text surrounding the specified position.
+        Get text surrounding the specified position with security validation.
 
         Args:
             position: Cursor position
-            context_length: Number of characters to include on each side
+            context_length: Number of characters to include on each side (max 10000)
 
         Returns:
-            Surrounding text
+            Surrounding text (validated and sanitized)
         """
         try:
             from utils.helpers import get_current_document
@@ -364,6 +364,9 @@ class ContextAnalyzer:
             current_doc = get_current_document()
             if not current_doc or not current_doc.editor:
                 return ""
+
+            # Limit context length for security
+            context_length = min(context_length, 10000)
 
             # Get the Scintilla editor object
             editor = current_doc.editor
@@ -376,7 +379,8 @@ class ContextAnalyzer:
             # Get the surrounding text
             surrounding_text = scintilla.get_text_range(start_pos, end_pos)
 
-            return surrounding_text
+            # Validate and sanitize the text
+            return self.validate_and_sanitize_context(surrounding_text, max_length=20000)
 
         except Exception as e:
             self.logger.error(f"Error getting surrounding text: {e}")
@@ -588,22 +592,25 @@ class ContextAnalyzer:
     
     def format_context_for_ai(self, context: Any) -> str:
         """
-        Format context information for AI consumption.
-        
+        Format context information for AI consumption with security validation.
+
         Args:
             context: CodeContext or WritingContext object
-            
+
         Returns:
-            Formatted context string
+            Formatted and validated context string
         """
         try:
             if isinstance(context, CodeContext):
-                return self._format_code_context(context)
+                formatted = self._format_code_context(context)
             elif isinstance(context, WritingContext):
-                return self._format_writing_context(context)
+                formatted = self._format_writing_context(context)
             else:
-                return str(context)
-                
+                formatted = str(context)
+
+            # Apply final validation and sanitization
+            return self.validate_and_sanitize_context(formatted, max_length=100000)
+
         except Exception as e:
             self.logger.error(f"Error formatting context: {e}")
             return ""
@@ -665,3 +672,93 @@ class ContextAnalyzer:
             parts.append(f"\nSurrounding context:\n{context.surrounding_text}")
         
         return "\n".join(parts)
+
+    # Security and validation methods
+
+    def validate_context_length(self, text: str, max_length: int = 50000) -> str:
+        """
+        Validate and truncate context to prevent excessive token usage.
+
+        Args:
+            text: Text to validate
+            max_length: Maximum allowed length in characters
+
+        Returns:
+            Validated and potentially truncated text
+        """
+        if not text:
+            return ""
+
+        if len(text) <= max_length:
+            return text
+
+        # Truncate and add warning
+        truncated = text[:max_length]
+        self.logger.warning(f"Context truncated from {len(text)} to {max_length} characters")
+        return truncated + "\n\n[CONTEXT TRUNCATED FOR SECURITY]"
+
+    def sanitize_user_input(self, text: str) -> str:
+        """
+        Sanitize user input to prevent prompt injection attacks.
+
+        Args:
+            text: User input text to sanitize
+
+        Returns:
+            Sanitized text
+        """
+        if not text:
+            return ""
+
+        # Remove potential prompt injection patterns
+        sanitized = text
+
+        # Remove or escape common prompt injection patterns
+        injection_patterns = [
+            r'(?i)ignore\s+previous\s+instructions',
+            r'(?i)forget\s+everything',
+            r'(?i)system\s*:',
+            r'(?i)assistant\s*:',
+            r'(?i)user\s*:',
+            r'(?i)human\s*:',
+            r'(?i)ai\s*:',
+            r'(?i)prompt\s*:',
+            r'(?i)instruction\s*:',
+            r'(?i)override\s+system',
+            r'(?i)new\s+instructions',
+            r'(?i)disregard\s+above',
+            r'(?i)ignore\s+above',
+        ]
+
+        for pattern in injection_patterns:
+            sanitized = re.sub(pattern, '[FILTERED]', sanitized)
+
+        # Limit consecutive newlines to prevent formatting attacks
+        sanitized = re.sub(r'\n{4,}', '\n\n\n', sanitized)
+
+        # Remove excessive whitespace
+        sanitized = re.sub(r' {10,}', ' ' * 10, sanitized)
+
+        return sanitized
+
+    def validate_and_sanitize_context(self, text: str, max_length: int = 50000) -> str:
+        """
+        Validate and sanitize context text for safe AI processing.
+
+        Args:
+            text: Context text to validate and sanitize
+            max_length: Maximum allowed length
+
+        Returns:
+            Validated and sanitized text
+        """
+        if not text:
+            return ""
+
+        # First sanitize for security
+        sanitized = self.sanitize_user_input(text)
+
+        # Then validate length
+        validated = self.validate_context_length(sanitized, max_length)
+
+        return validated

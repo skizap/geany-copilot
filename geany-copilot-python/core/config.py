@@ -8,8 +8,11 @@ with support for JSON-based settings compatible with the original Lua version.
 import os
 import json
 import logging
+import stat
 from typing import Dict, Any, Optional
 from pathlib import Path
+
+from .credentials import CredentialManager
 
 
 class ConfigManager:
@@ -86,7 +89,25 @@ class ConfigManager:
             "memory": {
                 "auto_cleanup": True,
                 "cleanup_interval": 300,  # 5 minutes
-                "max_memory_mb": 200.0
+                "max_memory_mb": 200.0,
+                "max_conversations": 10,  # Maximum number of conversations to keep
+                "max_conversation_age_hours": 24,  # Maximum age of conversations in hours
+                "max_turns_per_conversation": 50  # Maximum turns per conversation
+            },
+            "timeouts": {
+                "default": 30,  # Default timeout in seconds
+                "completion": 45,  # Code completion timeout
+                "streaming": 60,  # Streaming response timeout
+                "test_connection": 10,  # Connection test timeout
+                "max_response_size": 10485760,  # 10MB max response size
+                "max_chunks": 10000  # Maximum streaming chunks
+            },
+            "error_handling": {
+                "max_errors_per_hour": 50,  # Maximum errors before degradation
+                "retry_attempts": 3,  # Default retry attempts
+                "retry_delay": 1.0,  # Base retry delay in seconds
+                "circuit_breaker_timeout": 300,  # Circuit breaker timeout in seconds
+                "enable_graceful_degradation": True  # Enable graceful degradation
             }
         },
 
@@ -103,14 +124,19 @@ class ConfigManager:
         self.config_dir = self._get_config_directory()
         self.config_file = self.config_dir / "config.json"
         self.prompts_dir = self.config_dir / "prompts"
-        
-        # Ensure directories exist
-        self.config_dir.mkdir(parents=True, exist_ok=True)
-        self.prompts_dir.mkdir(parents=True, exist_ok=True)
-        
+
+        # Initialize credential manager
+        self.credential_manager = CredentialManager()
+
+        # Ensure directories exist with secure permissions
+        self._create_secure_directories()
+
         # Load configuration
         self.config = self._load_config()
         self._load_prompts()
+
+        # Migrate API keys to secure storage if needed
+        self._migrate_api_keys_if_needed()
     
     def _get_config_directory(self) -> Path:
         """Get the configuration directory path."""
@@ -126,7 +152,62 @@ class ConfigManager:
             base_dir = Path.home() / ".config" / "geany"
         
         return base_dir / "plugins" / "geanylua" / "geany-copilot-python"
-    
+
+    def _create_secure_directories(self):
+        """Create configuration directories with secure permissions."""
+        try:
+            # Create config directory with restricted permissions (700 - owner only)
+            self.config_dir.mkdir(parents=True, exist_ok=True)
+            os.chmod(self.config_dir, stat.S_IRWXU)  # 700 permissions
+
+            # Create prompts directory
+            self.prompts_dir.mkdir(parents=True, exist_ok=True)
+            os.chmod(self.prompts_dir, stat.S_IRWXU)  # 700 permissions
+
+            self.logger.debug(f"Created secure directories: {self.config_dir}")
+
+        except Exception as e:
+            self.logger.warning(f"Could not set secure directory permissions: {e}")
+
+    def _migrate_api_keys_if_needed(self):
+        """Migrate API keys from config file to secure storage if needed."""
+        try:
+            # Check if we have API keys in config that should be migrated
+            api_config = self.config.get('api', {})
+            has_keys_in_config = False
+
+            for provider, provider_config in api_config.items():
+                if provider == 'primary_provider':
+                    continue
+
+                if isinstance(provider_config, dict) and provider_config.get('api_key'):
+                    api_key = provider_config['api_key']
+                    if api_key and api_key != "your-api-key-here" and api_key != "":
+                        has_keys_in_config = True
+                        break
+
+            if has_keys_in_config and self.credential_manager.is_keyring_available():
+                self.logger.info("Migrating API keys from config file to secure storage...")
+                if self.credential_manager.migrate_from_config(self.config):
+                    # Clear API keys from config after successful migration
+                    self._clear_api_keys_from_config()
+                    self.save_config()
+                    self.logger.info("API key migration completed successfully")
+
+        except Exception as e:
+            self.logger.warning(f"API key migration failed: {e}")
+
+    def _clear_api_keys_from_config(self):
+        """Clear API keys from config after migration to secure storage."""
+        api_config = self.config.get('api', {})
+
+        for provider, provider_config in api_config.items():
+            if provider == 'primary_provider':
+                continue
+
+            if isinstance(provider_config, dict) and 'api_key' in provider_config:
+                provider_config['api_key'] = ""
+
     def _load_config(self) -> Dict[str, Any]:
         """Load configuration from file."""
         try:
@@ -243,10 +324,15 @@ When reviewing text:
         return base
     
     def save_config(self):
-        """Save current configuration to file."""
+        """Save current configuration to file with secure permissions."""
         try:
+            # Save config file
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=2, ensure_ascii=False)
+
+            # Set secure permissions (600 - owner read/write only)
+            os.chmod(self.config_file, stat.S_IRUSR | stat.S_IWUSR)
+
             self.logger.info(f"Configuration saved to {self.config_file}")
         except Exception as e:
             self.logger.error(f"Error saving configuration: {e}")
@@ -304,19 +390,92 @@ When reviewing text:
     
     def get_api_config(self, provider: Optional[str] = None) -> Dict[str, Any]:
         """
-        Get API configuration for the specified provider.
-        
+        Get API configuration for the specified provider with secure API key retrieval.
+
         Args:
             provider: API provider name (defaults to primary_provider)
-            
+
         Returns:
-            API configuration dictionary
+            API configuration dictionary with API key from secure storage
         """
         if provider is None:
             provider = self.get("api.primary_provider", "deepseek")
-        
-        return self.get(f"api.{provider}", {})
-    
+
+        # Get base config from file
+        config = self.get(f"api.{provider}", {}).copy()
+
+        # Override API key with secure storage
+        secure_api_key = self.credential_manager.get_api_key(provider)
+        if secure_api_key:
+            config['api_key'] = secure_api_key
+        elif not config.get('api_key'):
+            # No API key found in secure storage or config
+            self.logger.warning(
+                f"No API key found for provider '{provider}'. "
+                f"Set it using environment variable {provider.upper()}_API_KEY "
+                f"or store it securely using the credential manager."
+            )
+
+        return config
+
+    def set_api_key(self, provider: str, api_key: str) -> bool:
+        """
+        Set API key for a provider using secure storage.
+
+        Args:
+            provider: API provider name
+            api_key: API key to store
+
+        Returns:
+            True if stored successfully, False otherwise
+        """
+        if not self.credential_manager.validate_api_key(api_key):
+            self.logger.error(f"Invalid API key format for provider: {provider}")
+            return False
+
+        success = self.credential_manager.store_api_key(provider, api_key)
+        if success:
+            # Clear any API key from config file
+            api_config = self.config.get('api', {})
+            if provider in api_config and isinstance(api_config[provider], dict):
+                api_config[provider]['api_key'] = ""
+                self.save_config()
+
+        return success
+
+    def get_api_key(self, provider: str) -> Optional[str]:
+        """
+        Get API key for a provider from secure storage.
+
+        Args:
+            provider: API provider name
+
+        Returns:
+            API key if found, None otherwise
+        """
+        return self.credential_manager.get_api_key(provider)
+
+    def delete_api_key(self, provider: str) -> bool:
+        """
+        Delete API key for a provider from secure storage.
+
+        Args:
+            provider: API provider name
+
+        Returns:
+            True if deleted successfully, False otherwise
+        """
+        return self.credential_manager.delete_api_key(provider)
+
+    def get_security_status(self) -> Dict[str, Any]:
+        """
+        Get security status information.
+
+        Returns:
+            Dictionary with security status details
+        """
+        return self.credential_manager.get_security_status()
+
     def get_agent_config(self, agent_type: str) -> Dict[str, Any]:
         """
         Get configuration for the specified agent type.

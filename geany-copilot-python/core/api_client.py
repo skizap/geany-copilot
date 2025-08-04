@@ -53,16 +53,15 @@ class APIClient:
     def __init__(self, config_manager):
         """
         Initialize the API client.
-        
+
         Args:
             config_manager: Configuration manager instance
         """
         self.config_manager = config_manager
         self.logger = logging.getLogger(__name__)
         self.session = requests.Session()
-        
-        # Set default timeout and headers
-        self.session.timeout = 30
+
+        # Set default headers (timeout will be set per-request)
         self.session.headers.update({
             'Content-Type': 'application/json',
             'User-Agent': 'Geany-Copilot-Python/1.0.0'
@@ -142,11 +141,19 @@ class APIClient:
         """
         try:
             url, headers, payload = self._prepare_request(messages, provider, **kwargs)
-            
+
+            # Secure logging - sanitize sensitive data
             self.logger.debug(f"Sending request to {url}")
-            self.logger.debug(f"Payload: {json.dumps(payload, indent=2)}")
-            
-            response = self.session.post(url, headers=headers, json=payload)
+            sanitized_payload = self._sanitize_payload_for_logging(payload)
+            sanitized_headers = self._sanitize_headers_for_logging(headers)
+            self.logger.debug(f"Headers: {json.dumps(sanitized_headers, indent=2)}")
+            self.logger.debug(f"Payload: {json.dumps(sanitized_payload, indent=2)}")
+
+            # Set timeout per request using configuration
+            timeout_config = self.config_manager.get("performance.timeouts", {})
+            default_timeout = timeout_config.get('default', 30)
+            timeout = kwargs.get('timeout', default_timeout)
+            response = self.session.post(url, headers=headers, json=payload, timeout=timeout)
             
             if response.status_code == 200:
                 data = response.json()
@@ -163,6 +170,18 @@ class APIClient:
                 self.logger.error(error_msg)
                 return APIResponse(success=False, content="", error=error_msg)
                 
+        except requests.exceptions.Timeout as e:
+            error_msg = f"Request timeout: {str(e)}"
+            self.logger.error(error_msg)
+            return APIResponse(success=False, content="", error=error_msg)
+        except requests.exceptions.ConnectionError as e:
+            error_msg = f"Connection error: {str(e)}"
+            self.logger.error(error_msg)
+            return APIResponse(success=False, content="", error=error_msg)
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"HTTP error: {str(e)}"
+            self.logger.error(error_msg)
+            return APIResponse(success=False, content="", error=error_msg)
         except requests.exceptions.RequestException as e:
             error_msg = f"Network error: {str(e)}"
             self.logger.error(error_msg)
@@ -189,10 +208,19 @@ class APIClient:
         try:
             kwargs['stream'] = True
             url, headers, payload = self._prepare_request(messages, provider, **kwargs)
-            
+
+            # Secure logging for streaming requests
             self.logger.debug(f"Sending streaming request to {url}")
-            
-            response = self.session.post(url, headers=headers, json=payload, stream=True)
+            sanitized_payload = self._sanitize_payload_for_logging(payload)
+            sanitized_headers = self._sanitize_headers_for_logging(headers)
+            self.logger.debug(f"Streaming headers: {json.dumps(sanitized_headers, indent=2)}")
+            self.logger.debug(f"Streaming payload: {json.dumps(sanitized_payload, indent=2)}")
+
+            # Set timeout per request using configuration
+            timeout_config = self.config_manager.get("performance.timeouts", {})
+            streaming_timeout = timeout_config.get('streaming', 60)
+            timeout = kwargs.get('timeout', streaming_timeout)
+            response = self.session.post(url, headers=headers, json=payload, stream=True, timeout=timeout)
             
             if response.status_code != 200:
                 error_msg = f"API request failed with status {response.status_code}"
@@ -205,16 +233,39 @@ class APIClient:
                 
                 yield APIResponse(success=False, content="", error=error_msg)
                 return
-            
+
+            # Streaming response limits for security (from configuration)
+            timeout_config = self.config_manager.get("performance.timeouts", {})
+            max_response_size = kwargs.get('max_response_size', timeout_config.get('max_response_size', 10 * 1024 * 1024))
+            max_chunks = kwargs.get('max_chunks', timeout_config.get('max_chunks', 10000))
+            total_size = 0
+            chunk_count = 0
+
             for line in response.iter_lines():
                 if line:
                     line = line.decode('utf-8')
+                    total_size += len(line.encode('utf-8'))
+                    chunk_count += 1
+
+                    # Check size limits
+                    if total_size > max_response_size:
+                        error_msg = f"Response size limit exceeded ({max_response_size} bytes)"
+                        self.logger.warning(error_msg)
+                        yield APIResponse(success=False, content="", error=error_msg)
+                        break
+
+                    if chunk_count > max_chunks:
+                        error_msg = f"Response chunk limit exceeded ({max_chunks} chunks)"
+                        self.logger.warning(error_msg)
+                        yield APIResponse(success=False, content="", error=error_msg)
+                        break
+
                     if line.startswith('data: '):
                         data_str = line[6:]  # Remove 'data: ' prefix
-                        
+
                         if data_str.strip() == '[DONE]':
                             break
-                        
+
                         try:
                             data = json.loads(data_str)
                             chunk_response = self._parse_stream_chunk(data)
@@ -223,12 +274,24 @@ class APIClient:
                         except json.JSONDecodeError:
                             continue
                             
+        except requests.exceptions.Timeout as e:
+            error_msg = f"Streaming request timeout: {str(e)}"
+            self.logger.error(error_msg)
+            yield APIResponse(success=False, content="", error=error_msg)
+        except requests.exceptions.ConnectionError as e:
+            error_msg = f"Streaming connection error: {str(e)}"
+            self.logger.error(error_msg)
+            yield APIResponse(success=False, content="", error=error_msg)
+        except requests.exceptions.HTTPError as e:
+            error_msg = f"Streaming HTTP error: {str(e)}"
+            self.logger.error(error_msg)
+            yield APIResponse(success=False, content="", error=error_msg)
         except requests.exceptions.RequestException as e:
-            error_msg = f"Network error: {str(e)}"
+            error_msg = f"Streaming network error: {str(e)}"
             self.logger.error(error_msg)
             yield APIResponse(success=False, content="", error=error_msg)
         except Exception as e:
-            error_msg = f"Unexpected error: {str(e)}"
+            error_msg = f"Unexpected streaming error: {str(e)}"
             self.logger.error(error_msg)
             yield APIResponse(success=False, content="", error=error_msg)
     
@@ -309,10 +372,15 @@ class APIClient:
         ]
         
         try:
+            # Use shorter timeout for connection tests
+            timeout_config = self.config_manager.get("performance.timeouts", {})
+            test_timeout = timeout_config.get('test_connection', 10)
+
             response = self.chat_completion(
                 messages=test_messages,
                 provider=provider,
-                max_tokens=10
+                max_tokens=10,
+                timeout=test_timeout
             )
             
             if response.success:
@@ -341,7 +409,58 @@ class APIClient:
                 providers.append(provider.value)
         
         return providers
-    
+
+    def _sanitize_payload_for_logging(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Sanitize payload for secure logging by removing/masking sensitive data.
+
+        Args:
+            payload: Original payload dictionary
+
+        Returns:
+            Sanitized payload safe for logging
+        """
+        sanitized = payload.copy()
+
+        # Truncate messages to prevent log spam and potential data exposure
+        if 'messages' in sanitized:
+            sanitized_messages = []
+            for msg in sanitized['messages']:
+                sanitized_msg = msg.copy()
+                # Truncate content to first 100 characters
+                if 'content' in sanitized_msg and len(sanitized_msg['content']) > 100:
+                    sanitized_msg['content'] = sanitized_msg['content'][:100] + "... [TRUNCATED]"
+                sanitized_messages.append(sanitized_msg)
+            sanitized['messages'] = sanitized_messages
+
+        return sanitized
+
+    def _sanitize_headers_for_logging(self, headers: Dict[str, str]) -> Dict[str, str]:
+        """
+        Sanitize headers for secure logging by masking sensitive data.
+
+        Args:
+            headers: Original headers dictionary
+
+        Returns:
+            Sanitized headers safe for logging
+        """
+        sanitized = headers.copy()
+
+        # Mask Authorization header
+        if 'Authorization' in sanitized:
+            auth_value = sanitized['Authorization']
+            if auth_value.startswith('Bearer '):
+                # Show only first 8 and last 4 characters of the token
+                token = auth_value[7:]  # Remove 'Bearer '
+                if len(token) > 12:
+                    masked_token = token[:8] + '*' * (len(token) - 12) + token[-4:]
+                else:
+                    masked_token = '*' * len(token)
+                sanitized['Authorization'] = f'Bearer {masked_token}'
+
+        return sanitized
+
     def cleanup(self):
         """Cleanup resources."""
         if self.session:

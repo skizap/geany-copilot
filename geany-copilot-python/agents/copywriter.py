@@ -13,6 +13,7 @@ from enum import Enum
 
 from core.agent import AIAgent
 from core.api_client import APIResponse
+from utils.security import validate_user_input, create_safe_prompt
 
 
 class WritingTaskType(Enum):
@@ -259,14 +260,21 @@ class CopywriterAssistant:
         """
         if not self.current_conversation_id:
             self.start_writing_session(text)
-        
-        request = f"Rewrite this text"
+
+        # Validate and sanitize the text input
+        validation_result = validate_user_input(text, max_length=50000, check_injection=True)
+        safe_text = validation_result['sanitized_text']
+
+        # Create safe prompt
+        context = "Rewrite the following text"
         if style:
-            request += f" in a {style} style"
+            context += f" in a {style} style"
         if target_audience:
-            request += f" for {target_audience}"
-        request += f":\n\n{text}"
-        
+            context += f" for {target_audience}"
+        context += " while maintaining the original meaning and improving clarity."
+
+        request = create_safe_prompt(safe_text, context)
+
         return self.request_assistance(request, WritingTaskType.REWRITING)
     
     def expand_text(self, text: str, expansion_goal: str = "") -> APIResponse:

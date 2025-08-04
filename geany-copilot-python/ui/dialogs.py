@@ -6,6 +6,7 @@ copywriting, and plugin configuration.
 """
 
 import logging
+import threading
 from typing import Optional, Callable, Any
 
 try:
@@ -107,6 +108,41 @@ class BaseDialog:
         """Destroy the dialog."""
         self.dialog.destroy()
 
+    def _schedule_ui_update(self, callback, *args, **kwargs):
+        """
+        Schedule a UI update to run on the main thread.
+
+        This ensures thread safety when updating GTK widgets from background threads.
+        """
+        def safe_callback():
+            try:
+                callback(*args, **kwargs)
+            except Exception as e:
+                self.logger.error(f"Error in UI update callback: {e}")
+            return False  # Don't repeat the idle callback
+
+        # Schedule the callback to run on the main thread
+        if GTK_AVAILABLE:
+            gobject.idle_add(safe_callback)
+
+    def _is_main_thread(self) -> bool:
+        """Check if we're running on the main thread."""
+        return threading.current_thread() == threading.main_thread()
+
+    def _safe_ui_update(self, callback, *args, **kwargs):
+        """
+        Safely update UI, ensuring it runs on the main thread.
+
+        If already on main thread, call directly. Otherwise, schedule for main thread.
+        """
+        if self._is_main_thread():
+            try:
+                callback(*args, **kwargs)
+            except Exception as e:
+                self.logger.error(f"Error in UI update: {e}")
+        else:
+            self._schedule_ui_update(callback, *args, **kwargs)
+
 
 class CodeAssistantDialog(BaseDialog):
     """Dialog for code assistance interactions."""
@@ -125,6 +161,9 @@ class CodeAssistantDialog(BaseDialog):
         self.current_response_buffer = ""
         self.assistant_message_start = None
 
+        # Thread synchronization for streaming
+        self._streaming_lock = threading.Lock()
+
         super().__init__("Code Assistant", parent, 900, 700)
 
         # Setup streaming callbacks
@@ -139,43 +178,58 @@ class CodeAssistantDialog(BaseDialog):
             agent.on_error = self._on_streaming_error
 
     def _on_thinking_start(self):
-        """Called when AI starts thinking."""
-        self._show_status("AI is thinking...")
-        self.send_button.set_sensitive(False)
+        """Called when AI starts thinking (thread-safe)."""
+        def ui_update():
+            self._show_status("AI is thinking...")
+            self.send_button.set_sensitive(False)
+            self._start_assistant_message()
 
-        # Start a new assistant message in the chat
-        self._start_assistant_message()
+        self._safe_ui_update(ui_update)
 
     def _on_response_chunk(self, chunk: str):
-        """Called when a chunk of response is received."""
-        if not self.streaming_active:
-            return
+        """Called when a chunk of response is received (thread-safe)."""
+        with self._streaming_lock:
+            if not self.streaming_active:
+                return
 
-        # Add chunk to current response buffer
-        self.current_response_buffer += chunk
+            # Add chunk to current response buffer (thread-safe)
+            self.current_response_buffer += chunk
+            current_buffer = self.current_response_buffer
 
-        # Update the assistant message in real-time
-        self._update_assistant_message(self.current_response_buffer)
+        def ui_update():
+            with self._streaming_lock:
+                if self.streaming_active:  # Double-check in case state changed
+                    # Update the assistant message in real-time
+                    self._update_assistant_message(current_buffer)
 
-        # Keep UI responsive
-        while gtk.events_pending():
-            gtk.main_iteration()
+                    # Keep UI responsive
+                    while gtk.events_pending():
+                        gtk.main_iteration()
+
+        self._safe_ui_update(ui_update)
 
     def _on_streaming_error(self, error: str):
-        """Called when a streaming error occurs."""
-        self.streaming_active = False
-        self._show_status(f"Error: {error}")
-        self.send_button.set_sensitive(True)
+        """Called when a streaming error occurs (thread-safe)."""
+        def ui_update():
+            with self._streaming_lock:
+                self.streaming_active = False
+                current_buffer = self.current_response_buffer
 
-        # Add error to chat if we were streaming
-        if self.current_response_buffer:
-            self._finalize_assistant_message()
-        self._add_to_chat(f"Error: {error}")
+            self._show_status(f"Error: {error}")
+            self.send_button.set_sensitive(True)
+
+            # Add error to chat if we were streaming
+            if current_buffer:
+                self._finalize_assistant_message()
+            self._add_to_chat(f"Error: {error}")
+
+        self._safe_ui_update(ui_update)
 
     def _start_assistant_message(self):
-        """Start a new assistant message for streaming."""
-        self.streaming_active = True
-        self.current_response_buffer = ""
+        """Start a new assistant message for streaming (thread-safe)."""
+        with self._streaming_lock:
+            self.streaming_active = True
+            self.current_response_buffer = ""
 
         # Add initial assistant message
         buffer = self.chat_text.get_buffer()
@@ -443,6 +497,9 @@ class CopywriterDialog(BaseDialog):
         self.streaming_active = False
         self.current_response_buffer = ""
 
+        # Thread synchronization for streaming
+        self._streaming_lock = threading.Lock()
+
         super().__init__("Copywriter Assistant", parent, 900, 700)
 
         # Setup streaming callbacks
@@ -457,35 +514,50 @@ class CopywriterDialog(BaseDialog):
             agent.on_error = self._on_copywriter_streaming_error
 
     def _on_copywriter_thinking_start(self):
-        """Called when AI starts thinking."""
-        self._show_status("AI is processing...")
-        self._disable_buttons()
+        """Called when AI starts thinking (thread-safe)."""
+        def ui_update():
+            self._show_status("AI is processing...")
+            self._disable_buttons()
+            self._clear_improved_text()
 
-        # Clear the improved text area and prepare for streaming
-        self._clear_improved_text()
-        self.streaming_active = True
-        self.current_response_buffer = ""
+            with self._streaming_lock:
+                self.streaming_active = True
+                self.current_response_buffer = ""
+
+        self._safe_ui_update(ui_update)
 
     def _on_copywriter_response_chunk(self, chunk: str):
-        """Called when a chunk of response is received."""
-        if not self.streaming_active:
-            return
+        """Called when a chunk of response is received (thread-safe)."""
+        with self._streaming_lock:
+            if not self.streaming_active:
+                return
 
-        # Add chunk to current response buffer
-        self.current_response_buffer += chunk
+            # Add chunk to current response buffer
+            self.current_response_buffer += chunk
+            current_buffer = self.current_response_buffer
 
-        # Update the improved text in real-time
-        self._set_improved_text(self.current_response_buffer)
+        def ui_update():
+            with self._streaming_lock:
+                if self.streaming_active:  # Double-check in case state changed
+                    # Update the improved text in real-time
+                    self._set_improved_text(current_buffer)
 
-        # Keep UI responsive
-        while gtk.events_pending():
-            gtk.main_iteration()
+                    # Keep UI responsive
+                    while gtk.events_pending():
+                        gtk.main_iteration()
+
+        self._safe_ui_update(ui_update)
 
     def _on_copywriter_streaming_error(self, error: str):
-        """Called when a streaming error occurs."""
-        self.streaming_active = False
-        self._show_status(f"Error: {error}")
-        self._enable_buttons()
+        """Called when a streaming error occurs (thread-safe)."""
+        def ui_update():
+            with self._streaming_lock:
+                self.streaming_active = False
+
+            self._show_status(f"Error: {error}")
+            self._enable_buttons()
+
+        self._safe_ui_update(ui_update)
 
         # Show error in improved text area
         self._set_improved_text(f"Error: {error}")

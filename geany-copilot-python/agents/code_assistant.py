@@ -13,6 +13,7 @@ from enum import Enum
 
 from core.agent import AIAgent
 from core.api_client import APIResponse
+from utils.security import validate_user_input, create_safe_prompt
 
 
 class CodeTaskType(Enum):
@@ -263,32 +264,48 @@ class CodeAssistant:
     
     def complete_code(self, partial_code: str, cursor_position: int = -1) -> APIResponse:
         """
-        Complete partial code.
-        
+        Complete partial code with security validation.
+
         Args:
             partial_code: Partial code to complete
             cursor_position: Position of cursor in the code
-            
+
         Returns:
             APIResponse with code completion
         """
-        request = f"Complete this code:\n\n```\n{partial_code}\n```"
+        # Validate and sanitize the code input
+        validation_result = validate_user_input(partial_code, max_length=20000, check_injection=True)
+        safe_code = validation_result['sanitized_text']
+
+        # Create safe prompt
+        context = "Complete the following code snippet while maintaining proper syntax and style."
+        user_request = f"```\n{safe_code}\n```"
         if cursor_position >= 0:
-            request += f"\n\nCursor position: {cursor_position}"
-        
+            user_request += f"\n\nCursor position: {cursor_position}"
+
+        request = create_safe_prompt(user_request, context)
+
         return self.request_assistance(request, CodeTaskType.COMPLETION)
     
     def explain_code(self, code: str) -> APIResponse:
         """
-        Explain what the code does.
-        
+        Explain what the code does with security validation.
+
         Args:
             code: Code to explain
-            
+
         Returns:
             APIResponse with explanation
         """
-        request = f"Explain this code:\n\n```\n{code}\n```"
+        # Validate and sanitize the code input
+        validation_result = validate_user_input(code, max_length=20000, check_injection=True)
+        safe_code = validation_result['sanitized_text']
+
+        # Create safe prompt
+        context = "Provide a clear explanation of what the following code does, including its purpose, logic, and key concepts."
+        user_request = f"```\n{safe_code}\n```"
+
+        request = create_safe_prompt(user_request, context)
         return self.request_assistance(request, CodeTaskType.EXPLANATION)
     
     def refactor_code(self, code: str, refactoring_goal: str = "") -> APIResponse:

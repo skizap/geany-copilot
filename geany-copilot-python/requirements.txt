@@ -3,6 +3,9 @@
 # HTTP requests for API communication
 requests>=2.25.0
 
+# Secure credential storage using OS keyring
+keyring>=23.0.0
+
 # JSON handling (built-in, but listed for clarity)
 # json
 
