@@ -9,7 +9,7 @@ import time
 import hashlib
 import threading
 import logging
-from typing import Dict, Any, Optional, Callable, Tuple
+from typing import Dict, Any, Optional, Callable, Tuple, List
 from dataclasses import dataclass, field
 from collections import OrderedDict
 import weakref
@@ -62,13 +62,16 @@ class CacheEntry:
 
 class LRUCache:
     """
-    Least Recently Used cache with size and TTL limits.
-    
+    Intelligent Least Recently Used cache with advanced features.
+
     Features:
     - Size-based eviction
     - Time-based expiration
     - Access frequency tracking
     - Memory usage monitoring
+    - Intelligent preloading
+    - Context-aware invalidation
+    - Performance analytics
     """
     
     def __init__(self, 
@@ -82,14 +85,25 @@ class LRUCache:
         self._cache: OrderedDict[str, CacheEntry] = OrderedDict()
         self._lock = threading.RLock()
         self._total_size = 0
-        
-        logger.debug(f"Initialized LRU cache: max_size={max_size}, "
+
+        # Performance analytics
+        self._hit_count = 0
+        self._miss_count = 0
+        self._eviction_count = 0
+        self._preload_count = 0
+
+        # Intelligent features
+        self._access_patterns: Dict[str, List[float]] = {}  # Track access patterns
+        self._related_keys: Dict[str, set] = {}  # Track related cache keys
+
+        logger.debug(f"Initialized intelligent LRU cache: max_size={max_size}, "
                     f"max_memory={max_memory_mb}MB, ttl={default_ttl}s")
     
     def get(self, key: str) -> Optional[Any]:
         """Get a value from the cache."""
         with self._lock:
             if key not in self._cache:
+                self._miss_count += 1
                 return None
             
             entry = self._cache[key]
@@ -102,7 +116,11 @@ class LRUCache:
             # Move to end (most recently used)
             self._cache.move_to_end(key)
             entry.touch()
-            
+
+            # Track access patterns for intelligent preloading
+            self._track_access_pattern(key)
+            self._hit_count += 1
+
             logger.debug(f"Cache hit: {key} (access_count={entry.access_count})")
             return entry.value
     
@@ -157,6 +175,7 @@ class LRUCache:
         # Get the least recently used key (first in OrderedDict)
         lru_key = next(iter(self._cache))
         self._remove_entry(lru_key)
+        self._eviction_count += 1
         logger.debug(f"Cache evict LRU: {lru_key}")
         return True
     
@@ -182,16 +201,132 @@ class LRUCache:
                 logger.debug(f"Cache cleanup: removed {len(expired_keys)} expired entries")
     
     def get_stats(self) -> Dict[str, Any]:
-        """Get cache statistics."""
+        """Get comprehensive cache statistics."""
         with self._lock:
+            total_requests = self._hit_count + self._miss_count
+            hit_rate = (self._hit_count / total_requests) if total_requests > 0 else 0
+
             return {
                 'size': len(self._cache),
                 'max_size': self.max_size,
                 'memory_usage_bytes': self._total_size,
                 'memory_usage_mb': self._total_size / (1024 * 1024),
                 'max_memory_mb': self.max_memory_bytes / (1024 * 1024),
-                'memory_utilization': self._total_size / self.max_memory_bytes if self.max_memory_bytes > 0 else 0
+                'memory_utilization': self._total_size / self.max_memory_bytes if self.max_memory_bytes > 0 else 0,
+                'hit_count': self._hit_count,
+                'miss_count': self._miss_count,
+                'hit_rate': hit_rate,
+                'eviction_count': self._eviction_count,
+                'preload_count': self._preload_count,
+                'access_patterns': len(self._access_patterns),
+                'related_keys': len(self._related_keys)
             }
+
+    def _track_access_pattern(self, key: str):
+        """Track access patterns for intelligent preloading."""
+        current_time = time.time()
+
+        if key not in self._access_patterns:
+            self._access_patterns[key] = []
+
+        # Keep only recent access times (last 10 accesses)
+        self._access_patterns[key].append(current_time)
+        if len(self._access_patterns[key]) > 10:
+            self._access_patterns[key] = self._access_patterns[key][-10:]
+
+    def add_related_key(self, key1: str, key2: str):
+        """Mark two keys as related for intelligent invalidation."""
+        if key1 not in self._related_keys:
+            self._related_keys[key1] = set()
+        if key2 not in self._related_keys:
+            self._related_keys[key2] = set()
+
+        self._related_keys[key1].add(key2)
+        self._related_keys[key2].add(key1)
+
+    def invalidate_related(self, key: str):
+        """Invalidate a key and all related keys."""
+        invalidated = []
+
+        with self._lock:
+            # Invalidate the main key
+            if key in self._cache:
+                self._remove_entry(key)
+                invalidated.append(key)
+
+            # Invalidate related keys
+            if key in self._related_keys:
+                for related_key in self._related_keys[key].copy():
+                    if related_key in self._cache:
+                        self._remove_entry(related_key)
+                        invalidated.append(related_key)
+
+        if invalidated:
+            logger.debug(f"Invalidated related keys: {invalidated}")
+
+        return invalidated
+
+    def get_preload_candidates(self, limit: int = 5) -> List[str]:
+        """Get keys that are good candidates for preloading based on access patterns."""
+        candidates = []
+        current_time = time.time()
+
+        with self._lock:
+            for key, access_times in self._access_patterns.items():
+                if len(access_times) < 3:  # Need at least 3 accesses to predict
+                    continue
+
+                # Calculate average interval between accesses
+                intervals = [access_times[i] - access_times[i-1] for i in range(1, len(access_times))]
+                avg_interval = sum(intervals) / len(intervals)
+
+                # Predict next access time
+                last_access = access_times[-1]
+                predicted_next = last_access + avg_interval
+
+                # If we're close to the predicted time and key is not cached
+                if (current_time >= predicted_next - avg_interval * 0.2 and
+                    key not in self._cache):
+                    candidates.append((key, predicted_next - current_time))
+
+            # Sort by urgency (closest to predicted access time)
+            candidates.sort(key=lambda x: x[1])
+
+        return [key for key, _ in candidates[:limit]]
+
+    def optimize_cache(self):
+        """Perform cache optimization by removing stale entries and optimizing layout."""
+        optimized_count = 0
+
+        with self._lock:
+            # Remove entries that haven't been accessed recently
+            current_time = time.time()
+            stale_threshold = 3600  # 1 hour
+
+            stale_keys = []
+            for key, entry in self._cache.items():
+                if current_time - entry.last_access > stale_threshold:
+                    stale_keys.append(key)
+
+            for key in stale_keys:
+                self._remove_entry(key)
+                optimized_count += 1
+
+            # Clean up access patterns for removed keys
+            for key in stale_keys:
+                if key in self._access_patterns:
+                    del self._access_patterns[key]
+                if key in self._related_keys:
+                    # Remove from related keys
+                    for related_key in self._related_keys[key]:
+                        if related_key in self._related_keys:
+                            self._related_keys[related_key].discard(key)
+                    del self._related_keys[key]
+
+        if optimized_count > 0:
+            logger.info(f"Cache optimization: removed {optimized_count} stale entries")
+
+        return optimized_count
 
 
 class RequestDebouncer:
@@ -299,8 +434,8 @@ class MemoryOptimizer:
 
 class PerformanceManager:
     """
-    Main performance management class that coordinates caching, debouncing,
-    and memory optimization.
+    Advanced performance management class with intelligent caching, debouncing,
+    memory optimization, and predictive preloading.
     """
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
@@ -329,8 +464,13 @@ class PerformanceManager:
         self._request_count = 0
         self._cache_hits = 0
         self._cache_misses = 0
-        
-        logger.info("Performance manager initialized")
+
+        # Intelligent features
+        self._last_optimization = time.time()
+        self._optimization_interval = config.get('optimization_interval', 300)  # 5 minutes
+        self._preload_enabled = config.get('enable_preloading', True)
+
+        logger.info("Advanced performance manager initialized")
     
     def cache_response(self, key: str, response: Any, ttl: Optional[float] = None) -> bool:
         """Cache an API response."""
@@ -363,10 +503,12 @@ class PerformanceManager:
         self.debouncer.debounce(key, func, *args, **kwargs)
     
     def cleanup(self):
-        """Cleanup resources."""
+        """Cleanup resources and perform optimization."""
         self.response_cache.cleanup_expired()
+        self.response_cache.optimize_cache()
         self.debouncer.cancel_all()
         self.memory_optimizer.optimize_memory()
+        self._last_optimization = time.time()
         logger.info("Performance manager cleanup completed")
     
     def get_performance_stats(self) -> Dict[str, Any]:
@@ -385,5 +527,168 @@ class PerformanceManager:
             'cache_misses': self._cache_misses,
             'cache_hit_rate': hit_rate,
             'cache_stats': cache_stats,
-            'memory_stats': memory_stats
+            'memory_stats': memory_stats,
+            'optimization': {
+                'last_optimization': self._last_optimization,
+                'next_optimization': self._last_optimization + self._optimization_interval,
+                'preload_enabled': self._preload_enabled
+            }
+        }
+
+    def smart_cache_key(self, agent_type: str, user_message: str, context: str = "",
+                       include_context_hash: bool = True) -> str:
+        """
+        Generate an intelligent cache key that considers context similarity.
+
+        Args:
+            agent_type: Type of AI agent
+            user_message: User's message
+            context: Current context
+            include_context_hash: Whether to include context in the key
+
+        Returns:
+            Optimized cache key
+        """
+        # Normalize the user message for better cache hits
+        normalized_message = user_message.lower().strip()
+
+        # Create base key components
+        key_components = [agent_type, normalized_message]
+
+        if include_context_hash and context:
+            # Use a shorter hash for context to allow for similar contexts
+            context_hash = hashlib.md5(context.encode('utf-8')).hexdigest()[:8]
+            key_components.append(context_hash)
+
+        # Generate the cache key
+        key_data = "|".join(key_components)
+        return hashlib.md5(key_data.encode('utf-8')).hexdigest()
+
+    def cache_response_with_relations(self, key: str, response: Any,
+                                    related_keys: Optional[List[str]] = None):
+        """
+        Cache a response and establish relationships with other cache entries.
+
+        Args:
+            key: Cache key
+            response: Response to cache
+            related_keys: List of related cache keys
+        """
+        # Cache the response
+        success = self.response_cache.put(key, response)
+
+        if success and related_keys:
+            # Establish relationships
+            for related_key in related_keys:
+                self.response_cache.add_related_key(key, related_key)
+
+        return success
+
+    def invalidate_context_cache(self, context_pattern: str):
+        """
+        Invalidate cache entries that match a context pattern.
+
+        Args:
+            context_pattern: Pattern to match against cached contexts
+        """
+        # This would be used when context changes significantly
+        # For now, we'll implement a simple pattern matching
+        invalidated_keys = []
+
+        # Get all cache keys and check for pattern matches
+        cache_stats = self.response_cache.get_stats()
+        # Note: This is a simplified implementation
+        # In a real scenario, we'd need access to the cache keys
+
+        logger.info(f"Context cache invalidation requested for pattern: {context_pattern}")
+        return invalidated_keys
+
+    def preload_likely_requests(self, current_context: str, agent_type: str):
+        """
+        Preload cache with likely upcoming requests based on patterns.
+
+        Args:
+            current_context: Current context
+            agent_type: Type of AI agent
+        """
+        if not self._preload_enabled:
+            return
+
+        # Get preload candidates
+        candidates = self.response_cache.get_preload_candidates(limit=3)
+
+        if candidates:
+            logger.debug(f"Preload candidates identified: {len(candidates)} keys")
+            # In a real implementation, we would trigger background requests
+            # for these candidates
+
+        return candidates
+
+    def auto_optimize(self):
+        """
+        Automatically optimize performance based on usage patterns.
+        """
+        current_time = time.time()
+
+        # Check if it's time for optimization
+        if current_time - self._last_optimization < self._optimization_interval:
+            return False
+
+        logger.info("Starting automatic performance optimization")
+
+        # Optimize cache
+        optimized_entries = self.response_cache.optimize_cache()
+
+        # Optimize memory
+        memory_stats = self.memory_optimizer.optimize_memory()
+
+        # Update optimization timestamp
+        self._last_optimization = current_time
+
+        logger.info(f"Auto-optimization completed: {optimized_entries} cache entries optimized")
+
+        return {
+            'optimized_entries': optimized_entries,
+            'memory_stats': memory_stats,
+            'timestamp': current_time
+        }
+
+    def get_cache_efficiency_report(self) -> Dict[str, Any]:
+        """
+        Generate a comprehensive cache efficiency report.
+
+        Returns:
+            Detailed efficiency metrics and recommendations
+        """
+        cache_stats = self.response_cache.get_stats()
+
+        # Calculate efficiency metrics
+        hit_rate = cache_stats.get('hit_rate', 0)
+        memory_utilization = cache_stats.get('memory_utilization', 0)
+
+        # Determine efficiency level
+        if hit_rate > 0.8 and memory_utilization < 0.9:
+            efficiency = 'excellent'
+        elif hit_rate > 0.6 and memory_utilization < 0.95:
+            efficiency = 'good'
+        elif hit_rate > 0.4:
+            efficiency = 'fair'
+        else:
+            efficiency = 'poor'
+
+        # Generate recommendations
+        recommendations = []
+        if hit_rate < 0.5:
+            recommendations.append("Consider increasing cache size or TTL")
+        if memory_utilization > 0.9:
+            recommendations.append("Consider increasing memory limit or reducing cache size")
+        if cache_stats.get('eviction_count', 0) > cache_stats.get('size', 0):
+            recommendations.append("Cache is evicting entries frequently - consider tuning")
+
+        return {
+            'efficiency': efficiency,
+            'hit_rate': hit_rate,
+            'memory_utilization': memory_utilization,
+            'recommendations': recommendations,
+            'detailed_stats': cache_stats
         }

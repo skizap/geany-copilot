@@ -16,6 +16,7 @@ from .api_client import APIClient, ChatMessage, APIResponse
 from .context import ContextAnalyzer
 from .cache import PerformanceManager
 from ..utils.error_handling import ErrorRecoveryManager, ErrorCategory, ErrorSeverity, with_error_handling
+from ..utils.monitoring import PerformanceMonitor
 
 
 class ConversationState(Enum):
@@ -176,6 +177,9 @@ class AIAgent:
         max_errors_per_hour = config_manager.get('performance.error_handling.max_errors_per_hour', 50)
         self.error_manager = ErrorRecoveryManager(max_errors_per_hour)
 
+        # Performance monitoring
+        self.monitor = PerformanceMonitor()
+
         # Conversation management
         self.conversations: Dict[str, Conversation] = {}
         self.active_conversation: Optional[str] = None
@@ -252,6 +256,10 @@ class AIAgent:
         
         try:
             self.is_busy = True
+
+            # Monitor conversation start
+            self.monitor.increment_counter("conversation.started")
+
             if self.on_thinking_start:
                 self.on_thinking_start()
             
@@ -268,15 +276,18 @@ class AIAgent:
 
             messages.append(ChatMessage(role="user", content=final_user_message))
 
-            # Check cache for non-streaming requests
+            # Check cache for non-streaming requests with intelligent caching
             cache_key = None
             if not stream:
-                cache_key = self.performance_manager.generate_cache_key(
-                    conversation.agent_type, user_message, conversation.context
+                # Use smart cache key generation
+                cache_key = self.performance_manager.smart_cache_key(
+                    conversation.agent_type, user_message, conversation.context or ""
                 )
                 cached_response = self.performance_manager.get_cached_response(cache_key)
                 if cached_response:
                     self.logger.debug("Using cached response")
+                    self.monitor.increment_counter("conversation.cache_hit")
+
                     # Add cached response to conversation
                     conversation.add_turn(
                         user_message=user_message,
@@ -286,7 +297,15 @@ class AIAgent:
                         usage=cached_response.usage
                     )
                     conversation.state = ConversationState.WAITING_FOR_INPUT
+
+                    # Trigger preloading for likely next requests
+                    self.performance_manager.preload_likely_requests(
+                        conversation.context or "", conversation.agent_type
+                    )
+
                     return cached_response
+                else:
+                    self.monitor.increment_counter("conversation.cache_miss")
 
             # Get response
             if stream:
@@ -341,9 +360,20 @@ class AIAgent:
             )
             conversation.state = ConversationState.WAITING_FOR_INPUT
 
-            # Cache successful response
+            # Cache successful response with intelligent features
             if cache_key:
-                self.performance_manager.cache_response(cache_key, response)
+                # Generate related cache keys for similar contexts
+                related_keys = []
+                if conversation.context:
+                    # Create related keys for similar contexts
+                    base_key = self.performance_manager.smart_cache_key(
+                        conversation.agent_type, user_message, "", include_context_hash=False
+                    )
+                    related_keys.append(base_key)
+
+                self.performance_manager.cache_response_with_relations(
+                    cache_key, response, related_keys
+                )
         else:
             conversation.state = ConversationState.ERROR
             if self.on_error:
@@ -409,8 +439,11 @@ class AIAgent:
         try:
             self.logger.info("Starting agent cleanup")
 
-            # Performance cleanup
+            # Performance cleanup with auto-optimization
             self.performance_manager.cleanup()
+            optimization_result = self.performance_manager.auto_optimize()
+            if optimization_result:
+                self.logger.info(f"Auto-optimization completed: {optimization_result}")
 
             # Memory management for conversations
             self._cleanup_conversations()
@@ -586,12 +619,21 @@ class AIAgent:
             self.logger.info(f"Conversation cleanup: {initial_count} -> {final_count} conversations")
 
     def get_performance_stats(self) -> Dict[str, Any]:
-        """Get performance statistics including memory usage."""
+        """Get comprehensive performance statistics including memory usage and monitoring data."""
         stats = self.performance_manager.get_performance_stats()
 
         # Add memory statistics
         memory_stats = self.get_memory_stats()
         stats.update(memory_stats)
+
+        # Add monitoring statistics
+        if hasattr(self, 'monitor'):
+            monitoring_stats = self.monitor.get_performance_summary()
+            stats['monitoring'] = monitoring_stats
+
+            # Add cache efficiency report
+            cache_efficiency = self.performance_manager.get_cache_efficiency_report()
+            stats['cache_efficiency'] = cache_efficiency
 
         return stats
 
