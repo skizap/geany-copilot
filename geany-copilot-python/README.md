@@ -278,3 +278,4 @@ MIT License - see LICENSE file for details.
 - Geany IDE and GeanyPy plugin system
 - DeepSeek and OpenAI for AI capabilities
 - GTK+ for UI framework
+- https://github.com/DevElCuy/geany-copilot
