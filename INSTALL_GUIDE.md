@@ -1,10 +1,19 @@
-# 🚀 Geany Copilot Python Plugin - Installation Guide
+# 🚀 Geany Copilot - Installation Guide
 
-This guide provides comprehensive instructions for installing the Geany Copilot Python plugin using the automated installation script.
+This guide provides comprehensive instructions for installing the Geany Copilot plugin. Due to GeanyPy compatibility issues with modern Linux distributions, we now offer both Lua and Python-based solutions.
+
+## ⚠️ **Important Notice: GeanyPy Compatibility Issue**
+
+**GeanyPy is not available in modern Linux distributions** (Ubuntu 24.04+, Linux Mint 22+) and is incompatible with Python 3 and modern GTK. This affects the Python plugin version.
+
+**Available Solutions:**
+- **🔥 Lua Plugin (Recommended)**: Works immediately with GeanyLua (included in geany-plugins)
+- **🐍 Python Backend**: Standalone Python service that can be called from Lua or external tools
+- **🔧 Hybrid Approach**: Lua frontend with Python backend for best of both worlds
 
 ## 📋 **Quick Start**
 
-### **Automated Installation (Recommended)**
+### **Option 1: Lua Plugin (Recommended)**
 
 1. **Download or clone** this repository:
    ```bash
@@ -12,94 +21,120 @@ This guide provides comprehensive instructions for installing the Geany Copilot 
    cd geany-copilot
    ```
 
-2. **Run the installation script**:
+2. **Install GeanyLua** (if not already installed):
    ```bash
-   ./install.sh
+   sudo apt install geany-plugins
    ```
 
-3. **Follow the prompts** and restart Geany when complete.
+3. **Copy Lua files**:
+   ```bash
+   cp *.lua ~/.config/geany/plugins/geanylua/
+   ```
 
-That's it! The script handles everything automatically.
+4. **Enable GeanyLua** in Geany: Tools → Plugin Manager → GeanyLua
 
-## 🔧 **What the Installation Script Does**
+### **Option 2: Python Backend Service**
 
-### **✅ Prerequisites Check**
-- Verifies Python 3.6+ is installed
-- Checks for pip package manager
-- Detects Geany IDE installation
-- Validates plugin source files
+1. **Install Python dependencies**:
+   ```bash
+   cd geany-copilot-python
+   pip3 install --user -r requirements.txt
+   ```
 
-### **📁 Legacy File Management**
-- Creates an `OLD/` directory in the repository root
-- Moves existing Lua files (`copilot.lua`, `copywriter.lua`) to `OLD/`
-- Preserves original files for users who want to continue using them
-- Ensures clean transition from Lua to Python version
+2. **Run as standalone service**:
+   ```bash
+   python3 geany-copilot-python/service.py
+   ```
 
-### **📦 Dependency Installation**
-- Installs Python dependencies using pip
-- Uses `--user` flag for user-local installation
-- Handles system-provided packages gracefully (GTK, etc.)
-- Provides clear feedback on installation status
+## 🔧 **Available Solutions Explained**
 
-### **🎯 Plugin Installation**
-- Detects appropriate Geany plugin directories
-- Supports multiple installation locations:
-  - `~/.config/geany/plugins/` (preferred)
-  - `~/.geany/plugins/`
-  - Legacy GeanyLua directories
-  - System-wide locations (if writable)
-- Copies all plugin files with proper permissions
-- Creates necessary directory structure
+### **🔥 Lua Plugin (Recommended)**
+- **Works immediately** with GeanyLua (included in geany-plugins)
+- **Direct API integration** with DeepSeek, OpenAI, and custom endpoints
+- **No Python dependencies** required
+- **Lightweight and fast** execution
+- **Full feature compatibility** with original functionality
 
-### **✅ Verification & Testing**
-- Verifies all essential files are installed
-- Runs plugin test suite to ensure functionality
-- Provides detailed installation summary
-- Logs all activities for troubleshooting
+### **🐍 Python Service Backend**
+- **Advanced agent capabilities** with multi-turn conversations
+- **Enhanced context awareness** and code analysis
+- **HTTP API** for integration with external tools
+- **Standalone operation** or as backend for Lua plugin
+- **Full Python ecosystem** access for advanced features
+
+### **� Hybrid Approach**
+- **Lua frontend** for immediate response and UI integration
+- **Python backend** for advanced processing when needed
+- **Best of both worlds** - speed and advanced capabilities
+- **Fallback support** - works even if Python service is unavailable
+
+## 🎯 **Why This Approach Works Better**
+
+### **✅ No GeanyPy Dependency**
+- GeanyPy is **not available** in modern Linux distributions
+- GeanyPy requires **Python 2** and **PyGTK 2.0** (obsolete)
+- Our solution uses **modern technologies** and **current standards**
+
+### **✅ Better Performance**
+- Lua plugin provides **instant response** for simple operations
+- Python service handles **complex processing** efficiently
+- **No plugin loading delays** or compatibility issues
+
+### **✅ Enhanced Reliability**
+- **Multiple fallback options** ensure functionality
+- **Independent operation** - each component works standalone
+- **Easy troubleshooting** with clear separation of concerns
 
 ## 🖥️ **System Requirements**
 
-### **Operating System**
-- Linux (Ubuntu, Debian, Fedora, openSUSE, Arch, etc.)
-- Other Unix-like systems with bash support
+### **For Lua Plugin (Recommended)**
+- **Geany IDE** (any recent version)
+- **GeanyLua plugin** (included in geany-plugins package)
+- **lua-json** library (for JSON parsing)
+- **lua-socket** library (optional, for HTTP requests)
 
-### **Software Requirements**
-- **Python 3.6+** (Python 3.8+ recommended)
+### **For Python Service (Optional)**
+- **Python 3.8+** (for advanced features)
 - **pip** package manager
-- **Geany IDE** with GeanyPy plugin support
-- **bash** shell (usually pre-installed)
+- **Flask** and **requests** libraries (for HTTP service)
 
-### **Optional Dependencies**
-- **GTK+ 3.0+** (usually system-provided)
-- **PyGTK/PyGObject** (usually system-provided)
+### **Installation Commands**
+```bash
+# Install Geany and plugins
+sudo apt install geany geany-plugins
+
+# Install Lua libraries (optional, for direct API calls)
+sudo apt install lua-cjson lua-socket
+
+# Install Python dependencies (optional, for service mode)
+pip3 install --user flask flask-cors requests
+```
 
 ## 📂 **Installation Locations**
 
-The script automatically detects and offers these installation locations:
+### **Lua Plugin Files**
+```
+~/.config/geany/plugins/geanylua/geany-copilot.lua
+```
+- Single file installation
+- Loaded automatically by GeanyLua
+- User-specific, no root privileges required
 
-### **User-Local (Recommended)**
+### **Python Service (Optional)**
 ```
-~/.config/geany/plugins/geany-copilot-python/
+~/geany-copilot/geany-copilot-python/
 ```
-- No root privileges required
-- User-specific installation
-- Easy to manage and update
+- Standalone service directory
+- Can run independently
+- Full Python environment access
 
-### **Legacy GeanyLua Directory**
+### **Configuration Files**
 ```
-~/.config/geany/plugins/geanylua/geany-copilot-python/
+~/.config/geany/geany-copilot/config.json
 ```
-- Compatible with existing GeanyLua setups
-- Maintains existing plugin structure
-
-### **System-Wide (Advanced)**
-```
-/usr/local/lib/geany/geany-copilot-python/
-/usr/share/geany/plugins/geany-copilot-python/
-```
-- Requires root privileges
-- Available to all users
-- Managed by system administrator
+- Shared configuration for both Lua and Python components
+- JSON format for easy editing
+- Automatic creation with defaults
 
 ## 🎮 **Interactive Installation Process**
 
